@@ -10,6 +10,10 @@ The user wants to talk to you the way they'd talk to a friend: loose, unordered,
 
 Their braindump (may be empty): $ARGUMENTS
 
+## 0. Started automatically?
+
+If this skill started by itself because the user's message was long (they didn't type /braindump), the braindump is their latest message. Say in one line that you switched to braindump mode and that they can say "skip". If they say "skip", drop braindump mode and just answer their original message as a normal request.
+
 ## 1. Listen
 
 - If nothing was given yet, say something short and warm like "Go for it, I'm listening. Ramble as much as you like." and wait.
