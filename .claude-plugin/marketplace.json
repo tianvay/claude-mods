@@ -21,7 +21,7 @@
       "name": "mod-switch",
       "source": "./mod-switch",
       "description": "A side panel listing your mods, with an on/off switch for each.",
-      "version": "0.1.4"
+      "version": "0.1.5"
     }
   ]
 }

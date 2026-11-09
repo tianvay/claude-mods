@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { ModView } from '../types'
+import type { ModUpdate, ModView } from '../types'
 
 const SELF = 'mod-switch'
 const PANE = 'mod-switch'
@@ -16,6 +16,12 @@ const view = atom({ plugin: 'mod-switch', key: 'view' } as const, 'all' as ModVi
 const expanded = atom({ plugin: 'mod-switch', key: 'expanded' } as const, [] as string[])
 // Set when the person closes the panel by hand; /mods clears it.
 const hidden = atom({ plugin: 'mod-switch', key: 'hidden' } as const, false)
+// Update check: what is outdated, what was updated, what is running.
+const updates = atom({ plugin: 'mod-switch', key: 'updates' } as const, [] as ModUpdate[])
+const updated = atom({ plugin: 'mod-switch', key: 'updated' } as const, [] as string[])
+const busy = atom({ plugin: 'mod-switch', key: 'busy' } as const, [] as string[])
+const checkedAt = atom({ plugin: 'mod-switch', key: 'checkedAt' } as const, 0)
+const updateError = atom({ plugin: 'mod-switch', key: 'updateError' } as const, '')
 
 type Mod = {
   name: string
@@ -240,12 +246,146 @@ async function autopublish($: EngineInterface): Promise<string | undefined> {
   return `Mods ${result}`
 }
 
+// ---------------------------------------------------------------------------
+// Update check: compares each installed plugin's version with the version its
+// marketplace lists, after refreshing those marketplaces from their source.
+// An update installs with `claude plugin update` and applies next session.
+// ---------------------------------------------------------------------------
+
+async function claudeDir($: EngineInterface): Promise<string> {
+  const configured = await $.env.get('CLAUDE_CONFIG_DIR')
+  if (configured) return norm(configured)
+  const home = (await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME')) ?? ''
+  return `${norm(home)}/.claude`
+}
+
+async function claudeCommand($: EngineInterface): Promise<string> {
+  return (await $.env.get('CLAUDE_CODE_EXECPATH')) || 'claude'
+}
+
+async function readJson<T>($: EngineInterface, path: string): Promise<T | undefined> {
+  try {
+    return JSON.parse(await $.fs.read(path)) as T
+  } catch {
+    return undefined
+  }
+}
+
+type Installed = { id: string; name: string; marketplace: string; scope: string; version: string }
+
+async function listInstalled($: EngineInterface, dir: string): Promise<Installed[]> {
+  const file = await readJson<{ plugins?: Record<string, { scope?: string; version?: string }[]> }>(
+    $,
+    `${dir}/plugins/installed_plugins.json`,
+  )
+  const out: Installed[] = []
+  for (const [id, entries] of Object.entries(file?.plugins ?? {})) {
+    const at = id.lastIndexOf('@')
+    if (at <= 0 || !Array.isArray(entries)) continue
+    const entry = entries.find(x => x.scope === 'user') ?? entries[0]
+    if (!entry?.version) continue
+    out.push({ id, name: id.slice(0, at), marketplace: id.slice(at + 1), scope: entry.scope ?? 'user', version: entry.version })
+  }
+  return out
+}
+
+// name -> version, as the marketplace's local copy lists it.
+async function catalog($: EngineInterface, dir: string, marketplace: string): Promise<Map<string, string>> {
+  const known = await readJson<Record<string, { installLocation?: string }>>($, `${dir}/plugins/known_marketplaces.json`)
+  const location = known?.[marketplace]?.installLocation
+  const versions = new Map<string, string>()
+  if (!location) return versions
+  const root = norm(location)
+  const manifest = await readJson<{ plugins?: { name?: string; version?: string; source?: unknown }[] }>(
+    $,
+    `${root}/.claude-plugin/marketplace.json`,
+  )
+  for (const p of manifest?.plugins ?? []) {
+    if (!p.name) continue
+    let version = p.version
+    if (!version && typeof p.source === 'string' && p.source.startsWith('./'))
+      version = (await readJson<{ version?: string }>($, `${root}/${p.source.slice(2)}/.claude-plugin/plugin.json`))?.version
+    if (version) versions.set(p.name, version)
+  }
+  return versions
+}
+
+const setBusy = ($: EngineInterface, id: string, on: boolean) =>
+  update($, busy, list => (on ? [...list.filter(x => x !== id), id] : list.filter(x => x !== id)))
+
+/** Refreshes the marketplaces (unless `refresh` is false) and records what is outdated. */
+async function checkUpdates($: EngineInterface, refresh = true): Promise<void> {
+  if ((await read($, busy)).includes('check')) return
+  await setBusy($, 'check', true)
+  try {
+    const dir = await claudeDir($)
+    const installed = await listInstalled($, dir)
+    const marketplaces = [...new Set(installed.map(p => p.marketplace))]
+    const failed: string[] = []
+    if (refresh) {
+      const claude = await claudeCommand($)
+      for (const m of marketplaces) {
+        const r = await $.process
+          .run([claude, 'plugin', 'marketplace', 'update', m], { timeoutMs: 120_000 })
+          .catch(() => undefined)
+        if (!r || r.exitCode !== 0) failed.push(m)
+      }
+    }
+    const found: ModUpdate[] = []
+    for (const m of marketplaces) {
+      const versions = await catalog($, dir, m)
+      for (const p of installed.filter(x => x.marketplace === m)) {
+        const latest = versions.get(p.name)
+        if (latest && isNewer(latest, p.version))
+          found.push({ id: p.id, name: p.name, marketplace: m, scope: p.scope, installed: p.version, latest })
+      }
+    }
+    const done = await read($, updated)
+    await update($, updates, () => found.filter(u => !done.includes(u.id)))
+    await update($, updateError, () =>
+      failed.length ? `Couldn't refresh ${failed.join(', ')} (offline?); versions may be stale.` : '',
+    )
+    const now = await $.clock.now()
+    await update($, checkedAt, () => now)
+  } finally {
+    await setBusy($, 'check', false)
+  }
+}
+
+async function installUpdate($: EngineInterface, u: ModUpdate): Promise<boolean> {
+  await setBusy($, u.id, true)
+  try {
+    const claude = await claudeCommand($)
+    const r = await $.process.run([claude, 'plugin', 'update', u.id, '--scope', u.scope], { timeoutMs: 180_000 })
+    if (r.exitCode !== 0) {
+      const why = `${r.stderr}\n${r.stdout}`.trim().split(/\r?\n/).filter(Boolean).pop() ?? `exit ${r.exitCode}`
+      await update($, updateError, () => `Updating ${u.name} failed: ${why}`)
+      return false
+    }
+    await update($, updates, list => list.filter(x => x.id !== u.id))
+    await update($, updated, list => [...list.filter(x => x !== u.id), u.id])
+    await update($, updateError, () => '')
+    return true
+  } catch (err) {
+    await update($, updateError, () => `Updating ${u.name} failed: ${String(err)}`)
+    return false
+  } finally {
+    await setBusy($, u.id, false)
+  }
+}
+
 /** Opens the pane unless it is already on screen or the person closed it. */
 async function show($: EngineInterface) {
   if (await read($, hidden)) return
   const mine = (await $.ui.panes()).find(p => p.id === PANE)
   if (mine?.isShown) return
   await $.ui.open({ id: PANE, title: TITLE })
+}
+
+async function announceUpdates($: EngineInterface): Promise<void> {
+  const list = await read($, updates)
+  if (list.length === 1) $.ui.toast(`Update available: ${list[0]!.name} v${list[0]!.latest} (see the Mods panel)`)
+  else if (list.length > 1) $.ui.toast(`${list.length} mod updates available (see the Mods panel)`)
 }
 
 async function isOff($: EngineInterface, name: string): Promise<boolean> {
@@ -270,6 +410,10 @@ export const register: Register = on => {
         if (note) $.ui.toast(note)
       })
       .catch(err => $.ui.toast(`Mod publishing failed: ${String(err)}`))
+      // After publishing, so a mod just pushed counts as available.
+      .then(() => checkUpdates($))
+      .then(() => announceUpdates($))
+      .catch(() => {})
     return next(e)
   })
 
@@ -331,6 +475,34 @@ export const register: Register = on => {
     const q = rawQuery.trim().toLowerCase()
     const shown = await read($, view)
     const openNow = await read($, expanded)
+    const outdated = await read($, updates)
+    const doneNow = await read($, updated)
+    const busyNow = await read($, busy)
+    const checked = await read($, checkedAt)
+    const problem = await read($, updateError)
+    const now = checked ? await $.clock.now().catch(() => checked) : 0
+    const checking = busyNow.includes('check')
+    const updateFor = (m: Mod) => outdated.find(u => u.name === m.name)
+    const isDone = (m: Mod) => doneNow.some(id => id.slice(0, id.lastIndexOf('@')) === m.name)
+
+    const runUpdate = (u: ModUpdate) => async () => {
+      if (busyNow.includes(u.id)) return
+      if (await installUpdate($, u)) $.ui.toast(`${u.name} updated to v${u.latest}; start a new session to use it`)
+    }
+    const updateAll = async () => {
+      let n = 0
+      for (const u of outdated) if (await installUpdate($, u)) n++
+      if (n) $.ui.toast(`${n} mod${n === 1 ? '' : 's'} updated; start a new session to use them`)
+    }
+    const checkNow = async () => {
+      await checkUpdates($)
+      const n = (await read($, updates)).length
+      $.ui.toast(n ? `${n} update${n === 1 ? '' : 's'} available` : 'All mods are up to date')
+    }
+    const ago = (ms: number) => {
+      const min = Math.floor((now - ms) / 60_000)
+      return min < 1 ? 'just now' : min < 60 ? `${min} min ago` : `${Math.floor(min / 60)} h ago`
+    }
 
     const isOn = (m: Mod) => !offNow.includes(m.name)
     const canPause = (m: Mod) => m.commands.length > 0
@@ -499,6 +671,8 @@ export const register: Register = on => {
             <Text size="caption" color={live ? 'success' : 'warning'}>{live ? '● active' : '◌ paused'}</Text>
             {m.isMine && <Text size="caption" color="claude">✦ yours</Text>}
             {!pausable && <Text size="caption" color="subtle">⚙ hooks only</Text>}
+            {updateFor(m) && <Text size="caption" color="warning">{`↑ v${updateFor(m)!.latest} available`}</Text>}
+            {!updateFor(m) && isDone(m) && <Text size="caption" color="success">✓ updated, new session</Text>}
             {m.commands.slice(0, shownCmds).map(c => (
               <Text size="caption" mono color={live ? 'suggestion' : 'inactive'}>{`/${c}`}</Text>
             ))}
@@ -526,6 +700,52 @@ export const register: Register = on => {
             <Stat value={paused} label="paused" tone={paused ? 'warning' : 'inactive'} />
             <Stat value={mine} label="yours" tone="claude" />
           </Box>
+        )}
+
+        {outdated.length > 0 && (
+          <Box flexDirection="column" borderStyle="round" borderColor="warning" paddingX={1} gap="xs">
+            <Box flexDirection="row" alignItems="center" justifyContent="space-between" gap={1}>
+              <Text weight="semibold" color="warning">
+                {`↑ ${outdated.length} update${outdated.length === 1 ? '' : 's'} available`}
+              </Text>
+              {outdated.length > 1 && (
+                <Box flexShrink={0}>
+                  <Button key="update-all" label="Update all" variant="primary" onPress={updateAll} />
+                </Box>
+              )}
+            </Box>
+            {outdated.map(u => {
+              const running = busyNow.includes(u.id)
+              return (
+                <Box
+                  key={`update-row-${u.name}`}
+                  flexDirection={tiny ? 'column' : 'row'}
+                  alignItems={tiny ? 'flex-start' : 'center'}
+                  justifyContent="space-between"
+                  gap={1}
+                >
+                  <Box flexDirection="row" flexWrap="wrap" columnGap={1} flexShrink={1} minWidth={0}>
+                    <Text weight="semibold" wrap="truncate">{u.name}</Text>
+                    <Text size="caption" mono dimColor>{`v${u.installed} → v${u.latest}`}</Text>
+                  </Box>
+                  <Box flexShrink={0}>
+                    <Button
+                      key={`update-${u.name}`}
+                      label={running ? 'Updating…' : 'Update'}
+                      variant={running ? 'secondary' : 'primary'}
+                      dimColor={running}
+                      onPress={runUpdate(u)}
+                    />
+                  </Box>
+                </Box>
+              )
+            })}
+            <Text size="caption" dimColor wrap="wrap">Updates apply from the next session.</Text>
+          </Box>
+        )}
+
+        {problem && (
+          <Text size="footnote" color="error" wrap="wrap">{problem}</Text>
         )}
 
         {Input && (
@@ -576,6 +796,24 @@ export const register: Register = on => {
             Pauses last for this session. Hooks-only mods can't be paused.
           </Text>
           {paused > 0 && <Button key="resume-all" label="Resume all" variant="primary" onPress={resumeAll} />}
+        </Box>
+
+        <Box
+          flexDirection={compact ? 'column' : 'row'}
+          alignItems={compact ? 'flex-start' : 'center'}
+          justifyContent="space-between"
+          gap={1}
+        >
+          <Text size="caption" dimColor wrap="wrap">
+            {checking
+              ? 'Checking for updates…'
+              : checked
+                ? `Updates checked ${ago(checked)}${outdated.length ? '' : ' · all up to date'}`
+                : 'Updates not checked yet'}
+          </Text>
+          {!checking && (
+            <Button key="check-updates" label="Check for updates" variant="secondary" dimColor onPress={checkNow} />
+          )}
         </Box>
       </Box>
     )
