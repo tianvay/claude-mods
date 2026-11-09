@@ -1,1 +1,1 @@
-{ "name": "mod-switch", "version": "0.1.5", "author": { "name": "tianvay" }, "description": "A side panel listing your mods, with an on/off switch for each.", "types": "./types/index.d.ts" }
+{ "name": "mod-switch", "version": "0.1.6", "author": { "name": "tianvay" }, "description": "A side panel listing your mods, with an on/off switch for each.", "types": "./types/index.d.ts" }

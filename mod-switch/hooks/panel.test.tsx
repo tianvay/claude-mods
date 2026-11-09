@@ -108,3 +108,56 @@ test('outdated mods get an Update button that runs claude plugin update', async 
   expect(await ui.find({ type: 'Text', text: '✓ updated, new session' })).toBeDefined()
   await ui.unmount()
 })
+
+test('without CLAUDE_CODE_EXECPATH, Update finds the desktop app’s newest claude.exe', async ($, on) => {
+  const files: Record<string, string> = {
+    'C:/Users/me/.claude/plugins/installed_plugins.json': JSON.stringify({
+      version: 2,
+      plugins: { 'notes-mod@shop': [{ scope: 'user', version: '0.1.0' }] },
+    }),
+    'C:/Users/me/.claude/plugins/known_marketplaces.json': JSON.stringify({
+      shop: { installLocation: 'C:/Users/me/.claude/plugins/marketplaces/shop' },
+    }),
+    'C:/Users/me/.claude/plugins/marketplaces/shop/.claude-plugin/marketplace.json': JSON.stringify({
+      name: 'shop',
+      plugins: [{ name: 'notes-mod', source: './notes-mod', version: '0.2.0' }],
+    }),
+  }
+  const data = 'C:/Users/me/AppData/Local/Claude-Data'
+  const dirs: Record<string, string[]> = {
+    [data]: ['claude_abc'],
+    [`${data}/claude_abc/claude-code`]: ['2.1.309', '2.1.317'],
+    [`${data}/claude_abc/claude-code/2.1.309`]: ['old1'],
+    [`${data}/claude_abc/claude-code/2.1.317`]: ['new1'],
+  }
+  const exes = [`${data}/claude_abc/claude-code/2.1.309/old1/claude.exe`, `${data}/claude_abc/claude-code/2.1.317/new1/claude.exe`]
+  const newest = exes[1]!
+  const runs: string[][] = []
+  on('command.list', () => ({ value: [{ name: 'notes', description: 'Notes', source: 'plugin', plugin: 'notes-mod' }] }))
+  on('fs.list', ($, e) => {
+    const path = e.path.replace(/\\/g, '/')
+    return { value: (dirs[path] ?? []).map(name => ({ name, kind: 'dir' as const, mtimeMs: 0 })) }
+  })
+  on('fs.exists', ($, e) => ({ value: exes.includes(e.path.replace(/\\/g, '/')) }))
+  on('fs.read', ($, e) => {
+    const path = e.path.replace(/\\/g, '/')
+    return path in files ? { value: files[path]! } : { deny: 'no such file' }
+  })
+  on('env.get', ($, e) => ({
+    value: e.name === 'USERPROFILE' ? 'C:\\Users\\me' : e.name === 'LOCALAPPDATA' ? 'C:\\Users\\me\\AppData\\Local' : undefined,
+  }))
+  on('process.run', ($, e) => {
+    runs.push([...e.argv])
+    return { value: { exitCode: 0, stdout: '', stderr: '' } }
+  })
+  on('clock.now', () => ({ value: 1_000_000 }))
+  on('ui.invalidate', () => ({ value: undefined }))
+  on('ui.toast', () => ({ value: undefined }))
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'check-updates' })
+  await ui.press({ key: 'update-notes-mod' })
+  expect(runs.some(r => r.join(' ') === `${newest} plugin update notes-mod@shop --scope user`)).toBe(true)
+  expect(runs.every(r => r[0] === newest)).toBe(true)
+  await ui.unmount()
+})

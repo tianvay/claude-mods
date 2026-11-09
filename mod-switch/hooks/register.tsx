@@ -259,8 +259,41 @@ async function claudeDir($: EngineInterface): Promise<string> {
   return `${norm(home)}/.claude`
 }
 
+// The claude executable. The desktop app's bundled copy is usually not on
+// PATH and CLAUDE_CODE_EXECPATH may not reach mods, so look where sync.ps1 does:
+// the variable, the native installer, then the newest desktop-app copy.
+let claudePath: string | undefined
 async function claudeCommand($: EngineInterface): Promise<string> {
-  return (await $.env.get('CLAUDE_CODE_EXECPATH')) || 'claude'
+  if (claudePath) return claudePath
+  const fromEnv = await $.env.get('CLAUDE_CODE_EXECPATH').catch(() => undefined)
+  if (fromEnv) return (claudePath = fromEnv)
+  const exists = (p: string) => $.fs.exists(p).catch(() => false)
+  const home = norm((await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME')) ?? '')
+  for (const p of [`${home}/.local/bin/claude.exe`, `${home}/.local/bin/claude`])
+    if (home && (await exists(p))) return (claudePath = p)
+  const local = await $.env.get('LOCALAPPDATA')
+  if (local) {
+    const data = `${norm(local)}/Claude-Data`
+    let best: { path: string; version: string } | undefined
+    try {
+      for (const app of await $.fs.list(data)) {
+        if (app.kind !== 'dir') continue
+        const cc = `${data}/${app.name}/claude-code`
+        for (const ver of await $.fs.list(cc).catch(() => [])) {
+          if (ver.kind !== 'dir' || (best && !isNewer(ver.name, best.version))) continue
+          for (const build of await $.fs.list(`${cc}/${ver.name}`).catch(() => [])) {
+            const exe = `${cc}/${ver.name}/${build.name}/claude.exe`
+            if (build.kind === 'dir' && (await exists(exe))) {
+              best = { path: exe, version: ver.name }
+              break
+            }
+          }
+        }
+      }
+    } catch {}
+    if (best) return (claudePath = best.path)
+  }
+  return 'claude'
 }
 
 async function readJson<T>($: EngineInterface, path: string): Promise<T | undefined> {
