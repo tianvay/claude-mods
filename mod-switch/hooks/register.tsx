@@ -216,6 +216,11 @@ export const register: Register = on => {
         if (added.length) $.ui.toast(`Saved for auto-load: ${added.join(', ')} (active from the next session)`)
       })
       .catch(err => $.ui.toast(`Mod auto-load failed: ${String(err)}`))
+      .then(() => autopublish($))
+      .then(note => {
+        if (note) $.ui.toast(note)
+      })
+      .catch(err => $.ui.toast(`Mod publishing failed: ${String(err)}`))
     return next(e)
   })
 
