@@ -96,6 +96,12 @@ try {
     $global:LASTEXITCODE = 0
     Write-Output "copied: $($names -join ', ')"
 
+    # 1b. List every mod in ~/.claude/settings.json so the very next session loads it
+    #     (mod-switch does this too, but only as a session starts: one session late).
+    $settings = Join-Path $env:USERPROFILE '.claude\settings.json'
+    node (Join-Path $repo 'scripts\register.mjs') $source $settings | ForEach-Object { Write-Output $_ }
+    if ($LASTEXITCODE -ne 0) { Write-Output 'warning: could not update settings.json; mods load one session late'; $global:LASTEXITCODE = 0 }
+
     # 2. Bump the version of each changed mod, so people who installed it get the update.
     $bumps = @(node (Join-Path $repo 'scripts\bump.mjs') $source)
     if ($LASTEXITCODE -ne 0) { Done 'version bump failed' 1 }
