@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderNode, Timer } from 'claude-code'
 
-import type { Activity, DirEntry, FileMark, Phase, Running } from '../types'
+import type { Activity, BgTask, DirEntry, FileMark, Phase, Running } from '../types'
 
 import { HEX, extOf, fileChip, folderIcon, pill, shimmerText, statusIcon, sweepBar, timeoutBar } from './art'
 import type { Art, IconKind } from './art'
@@ -229,6 +229,7 @@ export const register: Register = on => {
         lastCommit: undefined,
         endReason: undefined,
         turnEndedAt: undefined,
+        background: [],
       }))
       startTicker($)
     })
@@ -272,6 +273,22 @@ export const register: Register = on => {
     stopTicker()
     return r
   })
+
+  // The Stop event carries the background work still in flight, so the panel can
+  // tell "done" from "paused until a background task wakes Claude again".
+  on('classic.Stop', async ($, e, next) => {
+    const r = await next(e)
+    if (e.agent_id !== undefined) return r
+    await safe(async () => {
+      const list: BgTask[] = (e.background_tasks ?? []).map(b => ({
+        id: b.id,
+        type: b.type,
+        label: short(b.command ?? b.description ?? b.name ?? b.agent_type ?? b.type, 120),
+      }))
+      await update($, activity, a => ({ ...a, background: list }))
+    })
+    return r
+  }).catch(($, e, next) => next(e))
 
   on('tool.call', async ($, e, next) => {
     const args = e as unknown as Record<string, unknown>
@@ -411,6 +428,7 @@ export const register: Register = on => {
     let warn = ''
     const summaryPills: [string, string][] = []
 
+    const bg = a.background ?? []
     if (a.phase === 'idle') {
       const touched = a.turnTouched.map(p => [p, f[p]] as const).filter(([, m]) => m !== undefined)
       const edited = touched.filter(([, m]) => m!.edited > 0)
@@ -433,6 +451,13 @@ export const register: Register = on => {
         const bits: string[] = [`took ${fmt((a.turnEndedAt ?? t) - a.turnStartedAt)}`]
         if (a.lastCommit) bits.unshift(`${a.lastCommit.hash} on ${a.lastCommit.branch}`)
         meta = bits.join(' · ')
+        if (a.endReason === 'answer' && bg.length > 0) {
+          kind = 'waiting'
+          tone = 'suggestion'
+          kicker = 'WAITING · BACKGROUND'
+          title = `Waiting on ${bg.length} background task${bg.length === 1 ? '' : 's'}`
+          meta = `Claude continues by itself when ${bg.length === 1 ? 'it finishes' : 'they finish'} · ${meta}`
+        }
         if (opened > 0) summaryPills.push([`${opened} opened`, HEX.purple])
         if (edited.length > 0) summaryPills.push([`${edited.length} edited`, HEX.amber])
         if (created.length > 0) summaryPills.push([`${created.length} new`, HEX.orange])
@@ -750,6 +775,20 @@ export const register: Register = on => {
             </Box>
           )}
           {runRows}
+          {a.phase === 'idle' && bg.length > 0 && (
+            <Box flexDirection="column" marginTop={1}>
+              {bg.map(b => (
+                <Box flexDirection="column">
+                  <Text color="suggestion" weight="semibold">
+                    ◌ {b.type} · still running
+                  </Text>
+                  <Text mono dimColor size="footnote">
+                    {short(b.label, Math.max(20, cols - 4))}
+                  </Text>
+                </Box>
+              ))}
+            </Box>
+          )}
         </Box>
 
         {/* stat tiles */}

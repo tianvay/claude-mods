@@ -22,6 +22,9 @@ export type FileMark = {
 
 export type LogLine = { at: number; text: string; kind: 'ok' | 'err' | 'info' }
 
+/** Background work still in flight when the turn ended (a [bg] shell, a background agent, a monitor). */
+export type BgTask = { id: string; type: string; label: string }
+
 export type Activity = {
   phase: Phase
   phaseSince: number
@@ -35,6 +38,8 @@ export type Activity = {
   lastCommit?: { branch: string; hash: string }
   endReason?: 'answer' | 'aborted' | 'refusal' | 'error'
   turnEndedAt?: number
+  /** Background tasks the engine reported as in flight when the turn stopped; cleared when the next turn starts. */
+  background?: BgTask[]
 }
 
 export type DirEntry = { name: string; isDir: boolean }

@@ -129,3 +129,38 @@ test('the panel shows itself on the first prompt in a narrow window', async ($, 
   await $.command.run({ command: 'activity' } as never)
   expect(opens).toBe(atStart + 2) // /activity opens it too
 })
+
+test('a turn that ends with a background task running shows WAITING, not DONE', async ($, on) => {
+  mock.clock(on, { now: 1_762_700_000_000 })
+  on('command.register', () => ({ value: { command: 'activity' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('fs.list', () => ({ value: [] }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: 'done' }))
+  on('classic.Stop', () => ({}))
+
+  await $.session.start({ cwd: 'C:\proj', surface: 'desktop', isInteractive: true })
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.classic.Stop({
+    stop_hook_active: false,
+    background_tasks: [{ id: 'b1', type: 'shell', status: 'running', description: 'maps', command: 'bash tools/maps-batch.sh' }],
+  })
+  await $.turn.complete({ turnId: 't1', reason: 'answer', answer: 'Started it.' })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ type: 'Text', text: /^DONE$/ })).toBeFalsy()
+    expect((await ui.find({ type: 'Text', text: /^Waiting on/ }))?.text).toBe('Waiting on 1 background task')
+    expect(await ui.find({ type: 'Text', text: /maps-batch\.sh/ })).toBeTruthy()
+    await ui.unmount()
+  }
+
+  // Claude is woken when the task finishes; that turn ends with nothing in flight: DONE.
+  await $.turn.start({ text: 'task finished', turnId: 't2' })
+  await $.classic.Stop({ stop_hook_active: false, background_tasks: [] })
+  await $.turn.complete({ turnId: 't2', reason: 'answer', answer: 'All done.' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /^DONE$/ }))?.text).toBe('DONE')
+  await ui.unmount()
+})
