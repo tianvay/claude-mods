@@ -3,8 +3,14 @@
   "owner": {
     "name": "tianvay"
   },
-  "description": "Mods for Claude Code: braindump, mod-switch.",
+  "description": "Mods for Claude Code: activity-panel, braindump, mod-switch.",
   "plugins": [
+    {
+      "name": "activity-panel",
+      "source": "./activity-panel",
+      "description": "A side panel showing what Claude is doing right now (thinking, waiting on the model, or stuck on a command) and which files it opened, edited and committed.",
+      "version": "0.1.0"
+    },
     {
       "name": "braindump",
       "source": "./braindump",

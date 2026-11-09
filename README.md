@@ -4,6 +4,7 @@ Small add-ons for [Claude Code](https://claude.com/claude-code) that make it nic
 
 | Mod | What it does | How to use it |
 | --- | --- | --- |
+| **[activity-panel](activity-panel)** <sub>v0.1.0</sub> | A side panel showing what Claude is doing right now (thinking, waiting on the model, or stuck on a command) and which files it opened, edited and committed. | Type `/activity` in Claude |
 | **[braindump](braindump)** <sub>v0.1.0</sub> | Talk it out like you would to a friend; Claude asks a few questions and turns it into a clear prompt for you to review. | Type `/braindump` in Claude |
 | **[mod-switch](mod-switch)** <sub>v0.1.2</sub> | A side panel listing your mods, with an on/off switch for each. | Type `/mods` in Claude |
 
@@ -32,7 +33,7 @@ You need Claude Code installed first. If you use the **Claude desktop app** and 
 2. Copy this line, paste it into the window, and press Enter:
 
    ```bash
-   claude plugin install braindump --marketplace tianvay/claude-mods; claude plugin install mod-switch --marketplace tianvay/claude-mods
+   claude plugin install activity-panel --marketplace tianvay/claude-mods; claude plugin install braindump --marketplace tianvay/claude-mods; claude plugin install mod-switch --marketplace tianvay/claude-mods
    ```
 
 3. If it asks a question, type `y` and press Enter.
@@ -43,7 +44,7 @@ You need Claude Code installed first. If you use the **Claude desktop app** and 
 I update these mods from time to time. To get the latest, do Option B again with this line instead:
 
 ```bash
-claude plugin marketplace update claude-mods; claude plugin update braindump@claude-mods; claude plugin update mod-switch@claude-mods
+claude plugin marketplace update claude-mods; claude plugin update activity-panel@claude-mods; claude plugin update braindump@claude-mods; claude plugin update mod-switch@claude-mods
 ```
 
 Then start a new Claude session.
@@ -51,7 +52,7 @@ Then start a new Claude session.
 ## Remove the mods
 
 ```bash
-claude plugin uninstall braindump@claude-mods; claude plugin uninstall mod-switch@claude-mods; claude plugin marketplace remove claude-mods
+claude plugin uninstall activity-panel@claude-mods; claude plugin uninstall braindump@claude-mods; claude plugin uninstall mod-switch@claude-mods; claude plugin marketplace remove claude-mods
 ```
 
 ## Something not working?
@@ -62,6 +63,7 @@ claude plugin uninstall braindump@claude-mods; claude plugin uninstall mod-switc
 
 ## Notes
 
+- **activity-panel** opens on its own at the start of a session (or type `/activity`). The top card tells you whether Claude is thinking, waiting on the model, or running a command, with a timer; a command that runs far longer than usual turns red with "may be hung". In the file tree, the file Claude is working on shimmers, files it opened turn purple, edited ones yellow, and committed ones green. When Claude finishes, the card becomes a short summary of what it did. Files count as committed once a `git commit` succeeds.
 - **mod-switch** pauses a mod's commands for the current session only. Some mods work quietly in the background and can't be paused.
 
 ---
