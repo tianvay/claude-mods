@@ -15,7 +15,7 @@
       "name": "braindump",
       "source": "./braindump",
       "description": "Talk it out like you would to a friend; Claude asks a few questions and turns it into a clear prompt for you to review.",
-      "version": "0.1.2"
+      "version": "0.1.3"
     },
     {
       "name": "mod-switch",
