@@ -2,7 +2,8 @@
 # mod-switch runs this automatically at the start of every Claude Code session
 # (see ~/.claude/mod-publish.json); you can also run it by hand:
 #
-#   powershell -ExecutionPolicy Bypass -File sync.ps1           copy, bump versions, rebuild, commit, push
+#   powershell -ExecutionPolicy Bypass -File sync.ps1           copy, bump versions, rebuild, commit, push,
+#                                                               then check the marketplace on this computer lists every mod
 #   powershell -ExecutionPolicy Bypass -File sync.ps1 -NoPush   same, but stop after the commit
 #
 # Mods are copied from %USERPROFILE%\.claude\mods. A mod deleted there is NOT
@@ -22,6 +23,55 @@ function Done([string]$msg, [int]$code = 0) {
     Remove-Item $lock -ErrorAction SilentlyContinue
     Write-Output "RESULT: $msg"
     exit $code
+}
+
+# The claude command: on PATH, else the newest copy the desktop app installed.
+function Find-Claude {
+    $onPath = Get-Command claude -ErrorAction SilentlyContinue
+    if ($onPath) { return $onPath.Source }
+    $candidates = @(
+        (Join-Path $env:USERPROFILE '.local\bin\claude.exe'),
+        (Join-Path $env:APPDATA 'npm\claude.cmd')
+    ) | Where-Object { Test-Path $_ }
+    if ($candidates) { return $candidates[0] }
+    $desktop = Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Claude-Data\*\claude-code\*\*\claude.exe') -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($desktop) { return $desktop.FullName }
+    return $null
+}
+
+# Checks that this computer's copy of the marketplace lists every mod in this
+# repository at its current version, refreshing it from GitHub when it is
+# behind. Returns $null when all is well, else a short description of the
+# problem. A marketplace never added on this computer is not checked.
+function Test-Marketplace {
+    $mine = Get-Content -Raw (Join-Path $repo '.claude-plugin\marketplace.json') | ConvertFrom-Json
+    $knownFile = Join-Path $env:USERPROFILE '.claude\plugins\known_marketplaces.json'
+    if (-not (Test-Path $knownFile)) { return $null }
+    $entry = (Get-Content -Raw $knownFile | ConvertFrom-Json).PSObject.Properties[$mine.name]
+    if (-not $entry) { return $null }
+    $clone = $entry.Value.installLocation
+    $want = @($mine.plugins | ForEach-Object { "$($_.name)@$($_.version)" })
+
+    $missing = {
+        $file = Join-Path $clone '.claude-plugin\marketplace.json'
+        $have = if (Test-Path $file) { @((Get-Content -Raw $file | ConvertFrom-Json).plugins | ForEach-Object { "$($_.name)@$($_.version)" }) } else { @() }
+        @($want | Where-Object { $have -notcontains $_ })
+    }
+
+    $head = git -C $repo rev-parse HEAD
+    $cloneHead = git -C $clone rev-parse HEAD 2>$null
+    if ($cloneHead -eq $head -and (& $missing).Count -eq 0) { return $null }
+
+    $claude = Find-Claude
+    if (-not $claude) { return "the marketplace on this computer is behind and the claude command wasn't found to refresh it" }
+    Write-Host "refreshing marketplace $($mine.name) (it was at $(if ($cloneHead) { $cloneHead.Substring(0, 7) } else { 'nothing' }))"
+    & $claude plugin marketplace update $mine.name 2>&1 | ForEach-Object { Write-Host "  $_" }
+    $global:LASTEXITCODE = 0
+
+    $still = & $missing
+    if ($still.Count -gt 0) { return "the marketplace on this computer doesn't list: $($still -join ', ')" }
+    return $null
 }
 
 # One sync at a time (two sessions starting together would trip over git).
@@ -77,11 +127,21 @@ try {
         git -C $repo push -q -u origin main 2>&1 | ForEach-Object { Write-Output "$_" }
     } else {
         $ahead = git -C $repo rev-list --count '@{u}..HEAD'
-        if ($ahead -eq '0') { Done 'up to date' }
+        if ($ahead -eq '0') {
+            # Nothing to push, but the marketplace on this computer may still be behind.
+            $problem = Test-Marketplace
+            if ($problem) { Done "up to date on GitHub, but $problem" 1 }
+            Done 'up to date'
+        }
         git -C $repo push -q 2>&1 | ForEach-Object { Write-Output "$_" }
     }
     if ($LASTEXITCODE -ne 0) { Done 'push to GitHub failed (signed out or offline?); it will retry next session' 1 }
-    if ($changed) { Done "published $what" } else { Done 'published earlier changes' }
+    $published = if ($changed) { "published $what" } else { 'published earlier changes' }
+
+    # 6. Check the marketplace the way someone installing would see it.
+    $problem = Test-Marketplace
+    if ($problem) { Done "$published, but $problem" 1 }
+    Done "$published; the marketplace lists every mod"
 }
 catch {
     Done "failed: $($_.Exception.Message)" 1
