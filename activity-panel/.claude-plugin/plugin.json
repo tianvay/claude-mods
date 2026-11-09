@@ -1,1 +1,9 @@
-{ "name": "activity-panel", "version": "0.1.2", "author": { "name": "tianvay" }, "description": "A side panel showing what Claude is doing right now (thinking, waiting on the model, or stuck on a command) and which files it opened, edited and committed.", "types": "./types/index.d.ts" }
+{
+  "name": "activity-panel",
+  "version": "0.1.3",
+  "author": {
+    "name": "tianvay"
+  },
+  "description": "A side panel showing what Claude is doing right now (thinking, waiting on the model, or stuck on a command) and which files it opened, edited and committed.",
+  "types": "./types/index.d.ts"
+}
