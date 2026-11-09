@@ -16,6 +16,11 @@ const PANE = {
 
 const entry = (name: string, kind: 'file' | 'dir') => ({ name, kind, size: 0, mtimeMs: 0, isLink: false })
 
+/** The alt texts of every Svg drawn: what a pill or icon says. */
+async function alts(ui: { findAll: (q: { type: string }) => Promise<{ props: Record<string, unknown> }[]> }): Promise<string[]> {
+  return (await ui.findAll({ type: 'Svg' })).map(el => String(el.props.alt))
+}
+
 test('a turn that reads, edits and commits ends in a summary', async ($, on) => {
   mock.clock(on, { now: 1_762_700_000_000 })
   on('command.register', () => ({ value: { command: 'activity' } }))
@@ -43,20 +48,56 @@ test('a turn that reads, edits and commits ends in a summary', async ($, on) => 
   await $.tool.call({ tool: 'Read', file_path: 'C:\\proj\\README.md' })
   await $.tool.call({ tool: 'Edit', file_path: 'C:\\proj\\src\\client.js', old_string: '2', new_string: '3' })
 
-  const mid = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect((await mid.find({ type: 'Text', text: /editing/ }))?.text).toBe(' editing ')
-  expect((await mid.find({ type: 'Text', text: /^ opened $/ }))?.text).toBe(' opened ')
-  await mid.unmount()
+  // Mid-turn: the edited file shimmers with an "editing" pill, the read one says "opened".
+  const desk = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const midAlts = await alts(desk)
+  expect(midAlts).toContain('editing')
+  expect(midAlts).toContain('opened')
+  expect(midAlts).toContain('client.js') // the shimmering name
+  await desk.unmount()
+
+  const term = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await term.find({ type: 'Text', text: /^ editing $/ }))?.text).toBe(' editing ')
+  expect((await term.find({ type: 'Text', text: /^opened$/ }))?.text).toBe('opened')
+  await term.unmount()
 
   await $.tool.call({ tool: 'Bash', command: 'git commit -am "Raise MAX_RETRIES to 3"' })
   await $.turn.complete({ turnId: 't1', reason: 'answer', answer: 'Done.' })
 
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
-    expect((await ui.find({ type: 'Text', text: /DONE/ }))?.text).toBe('● DONE')
+    expect((await ui.find({ type: 'Text', text: /^DONE$/ }))?.text).toBe('DONE')
     expect((await ui.find({ type: 'Text', text: /^Claude committed/ }))?.text).toBe('Claude committed 1 file')
-    expect((await ui.find({ type: 'Text', text: /a1c9e42 on main/ }))).toBeTruthy()
-    expect((await ui.find({ type: 'Text', text: /committed $/ }))?.text).toBe(' committed ')
+    expect(await ui.find({ type: 'Text', text: /a1c9e42 on main/ })).toBeTruthy()
+    if (surface === 'terminal') {
+      expect((await ui.find({ type: 'Text', text: /^ committed $/ }))?.text).toBe(' committed ')
+    } else {
+      const done = await alts(ui)
+      expect(done).toContain('DONE') // the status icon
+      expect(done).toContain('committed')
+      expect(done).toContain('1 committed') // summary pill
+    }
     await ui.unmount()
   }
+})
+
+test('a command near its timeout is flagged as maybe hung', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_762_700_000_000 })
+  on('command.register', () => ({ value: { command: 'activity' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('fs.list', () => ({ value: [] }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  // The command never answers within the test.
+  on('tool.call', () => new Promise(() => {}))
+
+  await $.session.start({ cwd: 'C:\\proj', surface: 'desktop', isInteractive: true })
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  void $.tool.call({ tool: 'Bash', command: 'npm test', timeout: 60_000 })
+  await clock.advance(50_000)
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /may be hung/ })).toBeTruthy()
+  expect(await alts(ui)).toContain('WORKING · MAYBE STUCK')
+  await ui.unmount()
 })

@@ -47,6 +47,7 @@ declare module 'claude-code' {
       dirs: Shaped<Record<string, DirEntry[]>>
       expanded: Shaped<Record<string, boolean>>
       now: number
+      query: string
     }
   }
 }

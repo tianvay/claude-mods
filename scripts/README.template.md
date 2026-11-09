@@ -59,7 +59,7 @@ Then start a new Claude session.
 
 ## Notes
 
-- **activity-panel** opens on its own at the start of a session (or type `/activity`). The top card tells you whether Claude is thinking, waiting on the model, or running a command, with a timer; a command that runs far longer than usual turns red with "may be hung". In the file tree, the file Claude is working on shimmers, files it opened turn purple, edited ones yellow, and committed ones green. When Claude finishes, the card becomes a short summary of what it did. Files count as committed once a `git commit` succeeds.
+- **activity-panel** opens on its own at the start of a session (or type `/activity`). The top card has an animated icon that tells you whether Claude is thinking, waiting on the model, or running a command, with a timer; each running command gets a bar that fills toward its timeout and turns red with "may be hung" when it gets close. In the file tree (with a "Find a file" search box in the desktop app), the file Claude is working on shimmers, files it opened turn purple, edited ones yellow, and committed ones green. When Claude finishes, the card becomes a short summary of what it did. Files count as committed once a `git commit` succeeds.
 - **mod-switch** pauses a mod's commands for the current session only. Some mods work quietly in the background and can't be paused.
 
 ---

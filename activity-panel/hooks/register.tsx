@@ -3,9 +3,12 @@ import type { EngineInterface, Register, RenderNode, Timer } from 'claude-code'
 
 import type { Activity, DirEntry, FileMark, Phase, Running } from '../types'
 
+import { HEX, extOf, fileChip, folderIcon, pill, shimmerText, statusIcon, sweepBar, timeoutBar } from './art'
+import type { Art, IconKind } from './art'
+
 const PANE = 'activity-panel'
 const TITLE = 'Activity'
-const TICK_MS = 250
+const TICK_MS = 500
 const MAX_TREE_ROWS = 400
 const SLOW_MODEL_MS = 45_000
 const SLOW_TOOL_MS = 30_000
@@ -25,6 +28,7 @@ const files = atom({ plugin: 'activity-panel', key: 'files' } as const, {} as Re
 const dirs = atom({ plugin: 'activity-panel', key: 'dirs' } as const, {} as Record<string, DirEntry[]>, { shape: 'd1' })
 const expanded = atom({ plugin: 'activity-panel', key: 'expanded' } as const, { '': true } as Record<string, boolean>, { shape: 'e1' })
 const now = atom({ plugin: 'activity-panel', key: 'now' } as const, 0)
+const query = atom({ plugin: 'activity-panel', key: 'query' } as const, '')
 
 // Module variables start over on every reload; session.start sets them again.
 let root = ''
@@ -338,107 +342,164 @@ export const register: Register = on => {
   }).catch(($, e, next) => next(e)) // never block a tool over a panel bug
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const els = $.ui.resolve(e)
+    const { Box, Text, Button } = els
+    // The table answers 'in' for tags its surface cannot draw, so decide by surface.
+    const Svg = e.surface !== 'terminal' && 'Svg' in els ? els.Svg : undefined
+    const Input = (e.surface === 'desktop' || e.surface === 'vscode') && 'Input' in els ? els.Input : undefined
     const a = await read($, activity)
     const f = await read($, files)
     const ds = await read($, dirs)
     const ex = await read($, expanded)
+    const q = (await read($, query)).trim().toLowerCase()
     const t = Math.max(await read($, now), a.phaseSince)
     const frame = Math.floor(t / TICK_MS)
+    const cols = e.props.bodyColumns
+    const widthPx = Math.max(180, Math.min(620, cols * 7.4))
 
-    // ── status card ─────────────────────────────────────────────
+    const art = (s: Art, alt: string) =>
+      Svg ? <Svg source={s.source} alt={alt} width={s.width} height={s.height} /> : null
+
+    // ── what is going on ────────────────────────────────────────
     const mainRun = a.running.filter(x => x.agentId === undefined)
     const phaseAge = t - a.phaseSince
-    let dotColor = 'inactive'
+    const lastRun = mainRun[mainRun.length - 1]
+    const runAge = lastRun ? t - lastRun.startedAt : 0
+    const runHung = lastRun
+      ? lastRun.timeoutMs !== undefined
+        ? runAge > lastRun.timeoutMs * 0.75
+        : runAge > 5 * 60_000
+      : false
+
+    let kind: IconKind = 'idle'
+    let tone = 'inactive'
     let kicker = 'IDLE'
     let title = 'Waiting for you'
+    let meta = 'Nothing running. Send a message to get going.'
     let subtitle = ''
     let warn = ''
+    const summaryPills: [string, string][] = []
 
     if (a.phase === 'idle') {
       const touched = a.turnTouched.map(p => [p, f[p]] as const).filter(([, m]) => m !== undefined)
       const edited = touched.filter(([, m]) => m!.edited > 0)
       const created = touched.filter(([, m]) => m!.isCreated)
       const uncommitted = edited.filter(([, m]) => !m!.isCommitted)
-      const readOnly = touched.length - edited.length
-      if (a.endReason === undefined) {
-        kicker = 'IDLE'
-      } else {
-        kicker = a.endReason === 'answer' ? 'DONE' : a.endReason === 'aborted' ? 'STOPPED' : 'ENDED WITH ' + a.endReason.toUpperCase()
-        dotColor = a.endReason === 'answer' ? 'success' : 'error'
+      const opened = touched.length - edited.length
+      if (a.endReason !== undefined) {
         const n = (k: number) => `${k} file${k === 1 ? '' : 's'}`
+        kind = a.endReason === 'answer' ? 'done' : a.endReason === 'aborted' ? 'stopped' : 'error'
+        tone = a.endReason === 'answer' ? 'success' : a.endReason === 'aborted' ? 'warning' : 'error'
+        kicker = a.endReason === 'answer' ? 'DONE' : a.endReason === 'aborted' ? 'STOPPED' : a.endReason.toUpperCase()
         title =
           a.turnCommitted > 0
             ? `Claude committed ${n(a.turnCommitted)}`
             : edited.length > 0
               ? `Claude edited ${n(edited.length)}`
-              : readOnly > 0
-                ? `Claude read ${n(readOnly)}`
+              : opened > 0
+                ? `Claude read ${n(opened)}`
                 : 'Claude answered'
-        const bits: string[] = []
-        if (a.lastCommit) bits.push(`${a.lastCommit.hash} on ${a.lastCommit.branch}`)
-        if (created.length > 0) bits.push(`${created.length} new`)
-        if (edited.length > 0 && a.turnCommitted > 0 && readOnly > 0) bits.push(`${readOnly} read`)
-        if (uncommitted.length > 0) bits.push(`${uncommitted.length} not committed`)
-        else if (edited.length > 0) bits.push('nothing left uncommitted')
-        bits.push(`took ${fmt((a.turnEndedAt ?? t) - a.turnStartedAt)}`)
-        subtitle = bits.join(' · ')
+        const bits: string[] = [`took ${fmt((a.turnEndedAt ?? t) - a.turnStartedAt)}`]
+        if (a.lastCommit) bits.unshift(`${a.lastCommit.hash} on ${a.lastCommit.branch}`)
+        meta = bits.join(' · ')
+        if (opened > 0) summaryPills.push([`${opened} opened`, HEX.purple])
+        if (edited.length > 0) summaryPills.push([`${edited.length} edited`, HEX.amber])
+        if (created.length > 0) summaryPills.push([`${created.length} new`, HEX.orange])
+        if (a.turnCommitted > 0) summaryPills.push([`${a.turnCommitted} committed`, HEX.green])
+        if (uncommitted.length > 0) summaryPills.push([`${uncommitted.length} not committed`, HEX.red])
+        else if (edited.length > 0) summaryPills.push(['working tree clean', HEX.green])
       }
     } else {
-      kicker = 'WORKING · ' + fmt(t - a.turnStartedAt)
-      dotColor = 'claude'
+      kicker = 'WORKING'
+      meta = `turn running ${fmt(t - a.turnStartedAt)}`
       if (a.phase === 'waiting') {
-        title = `Waiting on the model · ${fmt(phaseAge)}`
-        if (phaseAge > SLOW_MODEL_MS) warn = 'The API is slow to answer — not a hung command.'
+        kind = 'waiting'
+        tone = 'suggestion'
+        title = 'Waiting on the model'
+        meta = `${fmt(phaseAge)} so far · ${meta}`
+        if (phaseAge > SLOW_MODEL_MS) warn = 'The API is slow to answer. This is not a hung command.'
       } else if (a.phase === 'thinking') {
-        title = `Thinking · ${fmt(phaseAge)}`
+        kind = 'thinking'
+        tone = 'merged'
+        title = 'Thinking'
+        meta = `${fmt(phaseAge)} · ${meta}`
       } else if (a.phase === 'writing') {
-        title = `Writing · ${fmt(phaseAge)}`
+        kind = 'writing'
+        tone = 'claude'
+        title = 'Writing'
+        meta = `${fmt(phaseAge)} · ${meta}`
       } else {
-        const r = mainRun[mainRun.length - 1]
-        title = r ? `Running ${r.tool} · ${fmt(t - r.startedAt)}` : 'Running a tool'
-        if (r) subtitle = r.label
+        kind = runHung ? 'hung' : runAge > SLOW_TOOL_MS ? 'slow' : 'tool'
+        tone = runHung ? 'error' : runAge > SLOW_TOOL_MS ? 'warning' : 'claude'
+        title = lastRun ? `Running ${lastRun.tool}` : 'Running a tool'
+        meta = `${fmt(runAge)} · ${meta}`
+        if (runHung) warn = 'No result for a long time. The command may be hung.'
       }
-      if (a.current && a.phase !== 'waiting') subtitle = subtitle || `${a.current.verb} ${baseOf(a.current.path)}`
+      kicker = `${kicker} · ${kind === 'hung' ? 'MAYBE STUCK' : kind.toUpperCase()}`
+      if (a.current) subtitle = `${a.current.verb} ${a.current.path}`
     }
 
+    const toneHex: Record<string, string> = {
+      success: HEX.green,
+      warning: HEX.amber,
+      error: HEX.red,
+      claude: HEX.orange,
+      merged: HEX.purple,
+      suggestion: HEX.indigo,
+      inactive: HEX.grey,
+    }
+
+    // ── running commands with timeout bars ──────────────────────
     const runRows = a.running.map(r => {
       const age = t - r.startedAt
       const limit = r.timeoutMs
-      const hung = limit !== undefined ? age > limit * 0.75 : age > 5 * 60_000
+      const fraction = limit !== undefined ? age / limit : 0
+      const hung = limit !== undefined ? fraction > 0.75 : age > 5 * 60_000
       const slow = age > SLOW_TOOL_MS
-      const color = hung ? 'error' : slow ? 'warning' : 'text'
-      const note = hung
+      const color = hung ? 'error' : slow ? 'warning' : 'claude'
+      const note = hung ? 'no result yet: may be hung' : slow ? 'still running' : ''
+      const bar = Svg
         ? limit !== undefined
-          ? ` no result yet — may be hung (times out at ${fmt(limit)})`
-          : ' no result yet — may be hung'
-        : slow
-          ? ' still running'
-          : ''
+          ? art(timeoutBar(widthPx - 40, fraction), `${Math.round(fraction * 100)}% of the timeout used`)
+          : art(sweepBar(widthPx - 40, HEX.orange), 'running')
+        : (
+            <Text color={color}>
+              {textBar(limit !== undefined ? fraction : (frame % 20) / 20, 24)}
+            </Text>
+          )
       return (
-        <Box flexDirection="column">
-          <Text color={color}>
-            {hung ? '⚠ ' : '⏳ '}
-            {r.agentId !== undefined ? '[agent] ' : ''}
-            {r.tool} · {fmt(age)}
-            {note}
-          </Text>
-          {r.label !== '' && <Text dimColor>{'   ' + short(r.label, Math.max(20, e.props.bodyColumns - 4))}</Text>}
+        <Box flexDirection="column" marginTop={1}>
+          <Box flexDirection="row" justifyContent="space-between">
+            <Text color={color} weight="semibold">
+              {hung ? '⚠ ' : ''}
+              {r.agentId !== undefined ? 'subagent · ' : ''}
+              {r.tool}
+              {note !== '' ? `  ${note}` : ''}
+            </Text>
+            <Text color={color} tabular>
+              {fmt(age)}
+              {limit !== undefined ? ` / ${fmt(limit)}` : ''}
+            </Text>
+          </Box>
+          {r.label !== '' && (
+            <Text mono dimColor size="footnote">
+              {short(r.label, Math.max(20, cols - 4))}
+            </Text>
+          )}
+          {bar}
         </Box>
       )
     })
 
-    // ── file name drawing ──────────────────────────────────────
-    // Every file a running call works on is active (parallel reads shimmer
-    // together); the last file touched stays active until the turn ends.
+    // ── files ───────────────────────────────────────────────────
     const active: Record<string, string> = {}
     if (a.phase !== 'idle') {
       if (a.current) active[a.current.path] = a.current.verb
       for (const r of a.running) if (r.path !== undefined && r.verb) active[r.path] = r.verb
     }
-    const verbColor = (verb: string) => (verb === 'reading' || verb === 'searching' ? 'merged' : 'claude')
+    const isReadVerb = (verb: string) => verb === 'reading' || verb === 'searching'
 
-    const shimmer = (name: string, color: string) => {
+    const textShimmer = (name: string, color: string) => {
       const span = 3
       const pos = (frame % (name.length + span * 2)) - span
       const lo = Math.max(0, pos)
@@ -452,67 +513,109 @@ export const register: Register = on => {
       )
     }
 
-    const chip = (name: string) => {
-      const dot = name.lastIndexOf('.')
-      const ext = dot > 0 ? name.slice(dot + 1).toUpperCase().slice(0, 4) : ''
-      return <Text dimColor>{ext === '' ? '     ' : ` ${ext.padEnd(4)}`}</Text>
-    }
-
-    const badge = (path: string) => {
-      const m = f[path]
+    type State = { label: string; hex: string; key: string; pulse?: boolean; solid?: boolean }
+    const stateOf = (path: string): State | undefined => {
       const verb = active[path]
       if (verb !== undefined)
-        return <Text backgroundColor={verbColor(verb)} color="inverseText" bold>{` ${verb} `}</Text>
-      if (!m) return null
-      if (m.isCommitted) return <Text backgroundColor="success" color="inverseText" bold> committed </Text>
-      if (m.isCreated) return <Text color="warning" bold>new · not committed</Text>
-      if (m.edited > 0) return <Text color="warning" bold>edited ×{m.edited}</Text>
-      return <Text backgroundColor="merged" color="inverseText"> opened </Text>
+        return isReadVerb(verb)
+          ? { label: verb, hex: HEX.purple, key: 'merged', pulse: true }
+          : { label: verb, hex: HEX.orange, key: 'claude', pulse: true }
+      const m = f[path]
+      if (!m) return undefined
+      if (m.isCommitted) return { label: 'committed', hex: HEX.green, key: 'success', solid: true }
+      if (m.isCreated) return { label: 'new', hex: HEX.orange, key: 'claude' }
+      if (m.edited > 0) return { label: m.edited > 1 ? `edited ×${m.edited}` : 'edited', hex: HEX.amber, key: 'warning' }
+      return { label: 'opened', hex: HEX.purple, key: 'merged' }
     }
 
-    const fileRow = (path: string, label: string, indent: string, hint?: string) => {
-      const m = f[path]
+    const fileRow = (path: string, label: string, depth: number, hint?: string) => {
+      const st = stateOf(path)
       const verb = active[path]
-      const color = m?.isCommitted ? 'success' : m && m.edited > 0 ? 'warning' : m ? 'merged' : undefined
+      const name =
+        verb !== undefined
+          ? Svg
+            ? art(
+                shimmerText(label, isReadVerb(verb) ? HEX.purple : HEX.orange, isReadVerb(verb) ? HEX.purpleHi : HEX.orangeHi),
+                label,
+              )
+            : textShimmer(label, st?.key ?? 'claude')
+          : (
+              <Text color={st?.key} weight={st ? 'semibold' : 'regular'} dimColor={!st}>
+                {label}
+              </Text>
+            )
+      const ext = extOf(label)
       return (
-        <Box flexDirection="row" justifyContent="space-between">
-          <Box flexDirection="row" flexShrink={1}>
-            <Text>{indent}</Text>
-            {chip(label)}
-            <Text> </Text>
-            {verb !== undefined ? shimmer(label, verbColor(verb)) : <Text color={color} bold={m !== undefined} dimColor={m === undefined}>{label}</Text>}
-            {hint !== undefined && <Text dimColor>{'  ' + hint}</Text>}
+        <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={1}>
+          <Box flexDirection="row" alignItems="center" gap={1} flexShrink={1} paddingLeft={depth * 2}>
+            {Svg ? art(fileChip(label), ext === '' ? 'file' : ext) : <Text dimColor>{(ext || '·').slice(0, 4).padEnd(4)}</Text>}
+            {name}
+            {hint !== undefined && hint !== '' && (
+              <Text dimColor size="footnote">
+                {hint}
+              </Text>
+            )}
           </Box>
-          {badge(path)}
+          {st &&
+            (Svg ? (
+              art(pill(st.label, st.hex, { pulse: st.pulse, solid: st.solid }), st.label)
+            ) : (
+              <Text color={st.key} bold={st.pulse === true || st.solid === true}>
+                {st.pulse || st.solid ? ` ${st.label} ` : st.label}
+              </Text>
+            ))}
         </Box>
       )
     }
 
-    // ── touched list ───────────────────────────────────────────
     const touchedAll = Object.entries(f).sort((x, y) => y[1].lastAt - x[1].lastAt)
-    const legend = (
-      <Box flexDirection="row" gap={1} flexWrap="wrap">
-        <Text color="merged">● opened</Text>
-        <Text color="warning">● edited, not committed</Text>
-        <Text color="success">● committed</Text>
-        <Text color="claude">● working on it</Text>
+    const counts = { opened: 0, edited: 0, committed: 0 }
+    for (const [, m] of touchedAll) {
+      if (m.isCommitted) counts.committed++
+      else if (m.edited > 0) counts.edited++
+      else counts.opened++
+    }
+
+    const tile = (value: string, label: string, color: string) => (
+      <Box flexDirection="column" flexGrow={1} borderStyle="round" borderColor={color} paddingX={1}>
+        <Text size="heading" weight="bold" color={color} tabular>
+          {value}
+        </Text>
+        <Text size="caption" dimColor>
+          {label}
+        </Text>
       </Box>
     )
 
-    // ── tree ───────────────────────────────────────────────────
+    const section = (label: string, right?: string) => (
+      <Box flexDirection="row" justifyContent="space-between" marginTop={1}>
+        <Text size="caption" weight="bold" dimColor>
+          {label}
+        </Text>
+        {right !== undefined && (
+          <Text size="caption" dimColor tabular>
+            {right}
+          </Text>
+        )}
+      </Box>
+    )
+
+    // ── tree ────────────────────────────────────────────────────
     const touchedUnder = (dir: string) => {
       const prefix = dir === '' ? '' : dir + '/'
-      let n = 0
+      let changed = 0
       let opened = 0
       let allCommitted = true
+      let isActive = false
       for (const [k, v] of touchedAll) {
         if (!isInside(k) || !k.startsWith(prefix)) continue
         if (v.edited > 0) {
-          n++
+          changed++
           if (!v.isCommitted) allCommitted = false
         } else opened++
       }
-      return { n, opened, allCommitted }
+      for (const k of Object.keys(active)) if (k.startsWith(prefix)) isActive = true
+      return { changed, opened, allCommitted, isActive }
     }
 
     const toggle = async (dir: string) => {
@@ -528,72 +631,121 @@ export const register: Register = on => {
       for (const entry of list) {
         if (treeRows.length >= MAX_TREE_ROWS) return
         const path = dir === '' ? entry.name : `${dir}/${entry.name}`
-        const indent = '  '.repeat(depth)
         if (entry.isDir) {
           const isOpen = ex[path] === true
-          const { n, opened, allCommitted } = touchedUnder(path)
+          const u = touchedUnder(path)
+          const folderColor = u.isActive ? HEX.orange : u.changed > 0 ? (u.allCommitted ? HEX.green : HEX.amber) : u.opened > 0 ? HEX.purple : '#6CA8F0'
           treeRows.push(
-            <Box flexDirection="row" justifyContent="space-between">
-              <Button key={'dir:' + path} onPress={() => toggle(path)}>
-                {indent}
-                {isOpen ? '▾ ' : '▸ '}
-                {entry.name}
-              </Button>
-              {n > 0 ? (
-                <Text color={allCommitted ? 'success' : 'warning'}>{n} changed</Text>
-              ) : opened > 0 ? (
-                <Text color="merged">{opened} opened</Text>
-              ) : null}
+            <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={1}>
+              <Box flexDirection="row" alignItems="center" gap={1} paddingLeft={depth * 2}>
+                {Svg && art(folderIcon(isOpen, folderColor), isOpen ? 'open folder' : 'folder')}
+                <Button key={'dir:' + path} onPress={() => toggle(path)}>
+                  {Svg ? '' : isOpen ? '▾ ' : '▸ '}
+                  {entry.name}
+                </Button>
+              </Box>
+              {u.changed > 0
+                ? Svg
+                  ? art(pill(`${u.changed} changed`, u.allCommitted ? HEX.green : HEX.amber), `${u.changed} changed`)
+                  : <Text color={u.allCommitted ? 'success' : 'warning'}>{u.changed} changed</Text>
+                : u.opened > 0
+                  ? Svg
+                    ? art(pill(`${u.opened} opened`, HEX.purple), `${u.opened} opened`)
+                    : <Text color="merged">{u.opened} opened</Text>
+                  : null}
             </Box>,
           )
           if (isOpen) walk(path, depth + 1)
         } else {
-          treeRows.push(fileRow(path, entry.name, indent + '  '))
+          treeRows.push(fileRow(path, entry.name, depth))
         }
       }
     }
-    walk('', 0)
-    const outside = touchedAll.filter(([k]) => !isInside(k))
+
+    // A search replaces the tree with the matching files Claude knows of.
+    let matches: string[] = []
+    if (q !== '') {
+      const known = new Set<string>(touchedAll.map(([k]) => k))
+      for (const [dir, list] of Object.entries(ds))
+        for (const entry of list) if (!entry.isDir) known.add(dir === '' ? entry.name : `${dir}/${entry.name}`)
+      matches = [...known].filter(p => p.toLowerCase().includes(q)).sort().slice(0, 60)
+    } else walk('', 0)
 
     const refresh = async () => {
-      const ex2 = await read($, expanded)
-      for (const d of Object.keys(ex2)) if (ex2[d]) await safe(() => listDir($, d))
+      const opened = await read($, expanded)
+      for (const d of Object.keys(opened)) if (opened[d]) await safe(() => listDir($, d))
     }
     const collapse = () => update($, expanded, () => ({ '': true }))
 
-    const logRows = [...a.log].reverse().slice(0, 10)
+    const logRows = [...a.log].reverse().slice(0, 12)
 
     return (
       <Box flexDirection="column" gap={1}>
-        <Box flexDirection="column" borderStyle="round" borderColor={dotColor} paddingX={1}>
-          <Text color={dotColor} bold>
-            ● {kicker}
-          </Text>
-          <Text bold>{title}</Text>
-          {subtitle !== '' && <Text dimColor>{short(subtitle, Math.max(20, e.props.bodyColumns - 4))}</Text>}
-          {warn !== '' && <Text color="warning">{warn}</Text>}
-          {runRows.length > 0 && <Box flexDirection="column" marginTop={1}>{runRows}</Box>}
-          <Box marginTop={1}>{legend}</Box>
-        </Box>
-
-        {touchedAll.length > 0 && (
-          <Box flexDirection="column">
-            <Box flexDirection="row" justifyContent="space-between">
-              <Text bold>CLAUDE TOUCHED</Text>
-              <Text dimColor>
-                {touchedAll.length} file{touchedAll.length === 1 ? '' : 's'}
+        {/* hero card */}
+        <Box flexDirection="column" borderStyle="round" borderColor={tone} paddingX={1} paddingY={Svg ? 1 : 0}>
+          <Box flexDirection="row" alignItems="center" gap={2}>
+            {Svg ? art(statusIcon(kind), kicker) : <Text color={tone} bold>●</Text>}
+            <Box flexDirection="column" flexShrink={1}>
+              <Text size="caption" weight="bold" color={tone}>
+                {kicker}
+              </Text>
+              <Text size="title" weight="bold">
+                {title}
+              </Text>
+              <Text size="footnote" dimColor tabular>
+                {meta}
               </Text>
             </Box>
-            {touchedAll.slice(0, 12).map(([p]) => fileRow(p, baseOf(p), '', isInside(p) ? parentOf(p) : '(outside project)'))}
-            {touchedAll.length > 12 && <Text dimColor>…and {touchedAll.length - 12} more</Text>}
+          </Box>
+          {subtitle !== '' && (
+            <Box marginTop={1}>
+              <Text mono size="footnote" color={tone}>
+                {short(subtitle, Math.max(20, cols - 4))}
+              </Text>
+            </Box>
+          )}
+          {warn !== '' && (
+            <Box marginTop={1}>
+              <Text color={kind === 'hung' ? 'error' : 'warning'} weight="semibold">
+                {warn}
+              </Text>
+            </Box>
+          )}
+          {summaryPills.length > 0 && (
+            <Box flexDirection="row" flexWrap="wrap" gap={1} marginTop={1}>
+              {summaryPills.map(([label, hex]) =>
+                Svg ? art(pill(label, hex), label) : <Text color={Object.keys(toneHex).find(k => toneHex[k] === hex) ?? 'text'}>[{label}]</Text>,
+              )}
+            </Box>
+          )}
+          {runRows}
+        </Box>
+
+        {/* stat tiles */}
+        <Box flexDirection="row" gap={1}>
+          {tile(String(counts.opened), 'opened', 'merged')}
+          {tile(String(counts.edited), 'edited', 'warning')}
+          {tile(String(counts.committed), 'committed', 'success')}
+          {tile(a.turnStartedAt > 0 ? fmt((a.phase === 'idle' ? (a.turnEndedAt ?? t) : t) - a.turnStartedAt) : '–', a.phase === 'idle' ? 'last turn' : 'this turn', tone)}
+        </Box>
+
+        {/* touched */}
+        {touchedAll.length > 0 && (
+          <Box flexDirection="column" gap={Svg ? 1 : 0}>
+            {section('CLAUDE TOUCHED', `${touchedAll.length} file${touchedAll.length === 1 ? '' : 's'}`)}
+            {touchedAll
+              .slice(0, 12)
+              .map(([p]) => fileRow(p, baseOf(p), 0, isInside(p) ? parentOf(p) : 'outside project'))}
+            {touchedAll.length > 12 && <Text dimColor size="footnote">…and {touchedAll.length - 12} more</Text>}
           </Box>
         )}
 
-        <Box flexDirection="column">
-          <Box flexDirection="row" justifyContent="space-between">
-            <Text bold>ALL FILES</Text>
-            <Text dimColor>{baseOf(root) || root}</Text>
-          </Box>
+        {/* all files */}
+        <Box flexDirection="column" gap={Svg ? 1 : 0}>
+          {section('ALL FILES', (baseOf(root) || root).toUpperCase())}
+          {Input && (
+            <Input key="find" placeholder="Find a file" onInput={v => update($, query, () => v)} onSubmit={v => update($, query, () => v)} />
+          )}
           <Box flexDirection="row" gap={1}>
             <Button key="refresh" onPress={refresh}>
               Refresh
@@ -601,23 +753,54 @@ export const register: Register = on => {
             <Button key="collapse" onPress={collapse}>
               Collapse all
             </Button>
+            {q !== '' && (
+              <Button key="clear" onPress={() => update($, query, () => '')}>
+                Clear search
+              </Button>
+            )}
           </Box>
-          {ds[''] === undefined && <Text dimColor>Listing the project…</Text>}
-          {treeRows}
-          {treeRows.length >= MAX_TREE_ROWS && <Text dimColor>(tree cut at {MAX_TREE_ROWS} rows — collapse folders)</Text>}
-          {outside.length > 0 && <Text dimColor>{outside.length} touched file(s) outside the project, listed above</Text>}
+          {q !== '' ? (
+            <Box flexDirection="column" gap={Svg ? 1 : 0}>
+              {matches.length === 0 && <Text dimColor>No file matches “{q}”.</Text>}
+              {matches.map(p => fileRow(p, baseOf(p), 0, parentOf(p)))}
+            </Box>
+          ) : (
+            <Box flexDirection="column" gap={Svg ? 1 : 0}>
+              {ds[''] === undefined && <Text dimColor>Listing the project…</Text>}
+              {treeRows}
+              {treeRows.length >= MAX_TREE_ROWS && (
+                <Text dimColor size="footnote">
+                  Tree cut at {MAX_TREE_ROWS} rows. Collapse some folders.
+                </Text>
+              )}
+            </Box>
+          )}
         </Box>
 
+        {/* timeline */}
         <Box flexDirection="column">
-          <Text bold>RECENT ACTIVITY</Text>
+          {section('RECENT ACTIVITY')}
           {logRows.length === 0 && <Text dimColor>Nothing yet.</Text>}
           {logRows.map(l => (
-            <Text color={l.kind === 'err' ? 'error' : undefined} dimColor={l.kind === 'info'}>
-              {clockTime(l.at)} {l.kind === 'ok' ? '✓' : l.kind === 'err' ? '✗' : '·'} {l.text}
-            </Text>
+            <Box flexDirection="row" gap={1}>
+              <Text color={l.kind === 'err' ? 'error' : l.kind === 'ok' ? 'success' : 'inactive'}>
+                {l.kind === 'err' ? '✗' : l.kind === 'ok' ? '●' : '○'}
+              </Text>
+              <Text size="footnote" dimColor tabular>
+                {clockTime(l.at)}
+              </Text>
+              <Text size="footnote" color={l.kind === 'err' ? 'error' : undefined} dimColor={l.kind === 'info'}>
+                {short(l.text, Math.max(20, cols - 14))}
+              </Text>
+            </Box>
           ))}
         </Box>
       </Box>
     )
   })
+}
+
+function textBar(fraction: number, cells: number): string {
+  const n = Math.max(0, Math.min(cells, Math.round(fraction * cells)))
+  return '▰'.repeat(n) + '▱'.repeat(cells - n)
 }

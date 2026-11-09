@@ -4,7 +4,7 @@ Small add-ons for [Claude Code](https://claude.com/claude-code) that make it nic
 
 | Mod | What it does | How to use it |
 | --- | --- | --- |
-| **[activity-panel](activity-panel)** <sub>v0.1.0</sub> | A side panel showing what Claude is doing right now (thinking, waiting on the model, or stuck on a command) and which files it opened, edited and committed. | Type `/activity` in Claude |
+| **[activity-panel](activity-panel)** <sub>v0.1.1</sub> | A side panel showing what Claude is doing right now (thinking, waiting on the model, or stuck on a command) and which files it opened, edited and committed. | Type `/activity` in Claude |
 | **[braindump](braindump)** <sub>v0.1.0</sub> | Talk it out like you would to a friend; Claude asks a few questions and turns it into a clear prompt for you to review. | Type `/braindump` in Claude |
 | **[mod-switch](mod-switch)** <sub>v0.1.2</sub> | A side panel listing your mods, with an on/off switch for each. | Type `/mods` in Claude |
 
@@ -63,7 +63,7 @@ claude plugin uninstall activity-panel@claude-mods; claude plugin uninstall brai
 
 ## Notes
 
-- **activity-panel** opens on its own at the start of a session (or type `/activity`). The top card tells you whether Claude is thinking, waiting on the model, or running a command, with a timer; a command that runs far longer than usual turns red with "may be hung". In the file tree, the file Claude is working on shimmers, files it opened turn purple, edited ones yellow, and committed ones green. When Claude finishes, the card becomes a short summary of what it did. Files count as committed once a `git commit` succeeds.
+- **activity-panel** opens on its own at the start of a session (or type `/activity`). The top card has an animated icon that tells you whether Claude is thinking, waiting on the model, or running a command, with a timer; each running command gets a bar that fills toward its timeout and turns red with "may be hung" when it gets close. In the file tree (with a "Find a file" search box in the desktop app), the file Claude is working on shimmers, files it opened turn purple, edited ones yellow, and committed ones green. When Claude finishes, the card becomes a short summary of what it did. Files count as committed once a `git commit` succeeds.
 - **mod-switch** pauses a mod's commands for the current session only. Some mods work quietly in the background and can't be paused.
 
 ---
