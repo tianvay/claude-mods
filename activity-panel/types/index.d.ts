@@ -48,6 +48,8 @@ declare module 'claude-code' {
       expanded: Shaped<Record<string, boolean>>
       now: number
       query: string
+      /** The person closed the panel this session: don't bring it back unasked. */
+      hidden: boolean
     }
   }
 }

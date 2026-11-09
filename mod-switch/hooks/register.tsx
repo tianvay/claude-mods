@@ -14,6 +14,8 @@ const query = atom({ plugin: 'mod-switch', key: 'query' } as const, '')
 const view = atom({ plugin: 'mod-switch', key: 'view' } as const, 'all' as ModView)
 // Mods whose description is shown in full.
 const expanded = atom({ plugin: 'mod-switch', key: 'expanded' } as const, [] as string[])
+// Set when the person closes the panel by hand; /mods clears it.
+const hidden = atom({ plugin: 'mod-switch', key: 'hidden' } as const, false)
 
 type Mod = {
   name: string
@@ -201,6 +203,14 @@ async function autopublish($: EngineInterface): Promise<string | undefined> {
   return `Mods ${result}`
 }
 
+/** Opens the pane unless it is already on screen or the person closed it. */
+async function show($: EngineInterface) {
+  if (await read($, hidden)) return
+  const mine = (await $.ui.panes()).find(p => p.id === PANE)
+  if (mine?.isShown) return
+  await $.ui.open({ id: PANE, title: TITLE })
+}
+
 async function isOff($: EngineInterface, name: string): Promise<boolean> {
   const plugin = pluginOf(name)
   return plugin !== undefined && (await read($, off)).includes(plugin)
@@ -210,7 +220,9 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'mods', description: 'Show the Mods panel with on/off switches' })
     await listMods($)
-    void $.ui.open({ id: PANE, title: TITLE })
+    // Opened unasked, the pane only shows in a wide window; the hooks below
+    // open it again from the person's own input, which shows at any width.
+    void show($).catch(() => {})
     void autoload($)
       .then(added => {
         if (added.length) $.ui.toast(`Saved for auto-load: ${added.join(', ')} (active from the next session)`)
@@ -224,7 +236,27 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // A prompt the person sends is "asked": a pane opened from it is placed at any width.
+  on('prompt.submit', async ($, e, next) => {
+    await show($).catch(() => {})
+    return next(e)
+  })
+
+  // The desktop app may attach after the session started.
+  on('session.attach', async ($, e, next) => {
+    const r = await next(e)
+    await show($).catch(() => {})
+    return r
+  })
+
+  // Closed by hand: stay closed until /mods.
+  on('ui.close', async ($, e, next) => {
+    if (e.id === PANE && e.origin.kind === 'person') await update($, hidden, () => true).catch(() => {})
+    return next(e)
+  })
+
   on('command.run', { command: 'mods' }, async $ => {
+    await update($, hidden, () => false)
     await $.ui.open({ id: PANE, title: TITLE })
     return { text: 'Mods panel opened.' }
   })

@@ -9,7 +9,7 @@
       "name": "activity-panel",
       "source": "./activity-panel",
       "description": "Side panel showing what Claude is doing right now: thinking, waiting on the API or running a tool (with elapsed time and hang warnings), a file tree where the current file shimmers, and a recent activity log.",
-      "version": "0.1.0"
+      "version": "0.1.1"
     },
     {
       "name": "braindump",
@@ -21,7 +21,7 @@
       "name": "mod-switch",
       "source": "./mod-switch",
       "description": "A side panel listing your mods, with an on/off switch for each.",
-      "version": "0.1.2"
+      "version": "0.1.3"
     }
   ]
 }

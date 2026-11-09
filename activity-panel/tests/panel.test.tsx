@@ -101,3 +101,31 @@ test('a command near its timeout is flagged as maybe hung', async ($, on) => {
   expect(await alts(ui)).toContain('WORKING · MAYBE STUCK')
   await ui.unmount()
 })
+
+test('the panel shows itself on the first prompt in a narrow window', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_762_700_000_000 })
+  const shown = false
+  let opens = 0
+  on('command.register', () => ({ value: { command: 'activity' } }))
+  // A narrow window: an unasked open waits undrawn.
+  on('ui.open', () => {
+    opens++
+    return { value: { isPlaced: false, reason: 'narrow' } }
+  })
+  on('ui.panes', () => ({ value: shown ? [{ id: 'activity-panel', title: 'Activity', isShown: true, isFocused: false, isPlaced: true }] : [] }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('fs.list', () => ({ value: [] }))
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+  on('command.run', () => ({ text: '' }))
+
+  await $.session.start({ cwd: 'C:\\proj', surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  const atStart = opens
+  expect(atStart).toBeGreaterThan(0)
+
+  await $.prompt.submit({ text: 'hello' })
+  expect(opens).toBe(atStart + 1) // reopened from the person's prompt
+
+  await $.command.run({ command: 'activity' } as never)
+  expect(opens).toBe(atStart + 2) // /activity opens it too
+})

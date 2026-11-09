@@ -29,6 +29,7 @@ const dirs = atom({ plugin: 'activity-panel', key: 'dirs' } as const, {} as Reco
 const expanded = atom({ plugin: 'activity-panel', key: 'expanded' } as const, { '': true } as Record<string, boolean>, { shape: 'e1' })
 const now = atom({ plugin: 'activity-panel', key: 'now' } as const, 0)
 const query = atom({ plugin: 'activity-panel', key: 'query' } as const, '')
+const hidden = atom({ plugin: 'activity-panel', key: 'hidden' } as const, false)
 
 // Module variables start over on every reload; session.start sets them again.
 let root = ''
@@ -158,6 +159,14 @@ function stopTicker() {
   ticker = undefined
 }
 
+/** Opens the pane unless it is already on screen or the person closed it. */
+async function show($: $) {
+  if (await read($, hidden)) return
+  const mine = (await $.ui.panes()).find(p => p.id === PANE)
+  if (mine?.isShown) return
+  await $.ui.open({ id: PANE, title: TITLE })
+}
+
 const COMMIT_RE = /\bgit\b[^\n|;&]*\bcommit\b/
 const COMMIT_OUT_RE = /\[([^\s\]]+)(?: \(root-commit\))? ([0-9a-f]{7,40})\]/
 
@@ -173,11 +182,33 @@ export const register: Register = on => {
     await safe(async () => {
       if ((await read($, activity)).phase !== 'idle') startTicker($)
     })
-    void $.ui.open({ id: PANE, title: TITLE })
+    // Opened unasked, the pane only shows in a wide window; the hooks below
+    // open it again from the person's own input, which shows at any width.
+    void safe(() => show($))
     return r
   })
 
+  // A prompt the person sends is "asked": a pane opened from it is placed at any width.
+  on('prompt.submit', async ($, e, next) => {
+    await safe(() => show($))
+    return next(e)
+  })
+
+  // The desktop app may attach after the session started.
+  on('session.attach', async ($, e, next) => {
+    const r = await next(e)
+    await safe(() => show($))
+    return r
+  })
+
+  // Closed by hand: stay closed until /activity.
+  on('ui.close', async ($, e, next) => {
+    if (e.id === PANE && e.origin.kind === 'person') await safe(() => update($, hidden, () => true))
+    return next(e)
+  })
+
   on('command.run', { command: 'activity' }, async $ => {
+    await update($, hidden, () => false)
     await $.ui.open({ id: PANE, title: TITLE, focus: true })
     return { text: 'Activity panel opened.' }
   })

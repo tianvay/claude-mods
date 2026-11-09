@@ -4,9 +4,9 @@ Small add-ons for [Claude Code](https://claude.com/claude-code) that make it nic
 
 | Mod | What it does | How to use it |
 | --- | --- | --- |
-| **[activity-panel](activity-panel)** <sub>v0.1.0</sub> | Side panel showing what Claude is doing right now: thinking, waiting on the API or running a tool (with elapsed time and hang warnings), a file tree where the current file shimmers, and a recent activity log. | Type `/activity` in Claude |
+| **[activity-panel](activity-panel)** <sub>v0.1.1</sub> | Side panel showing what Claude is doing right now: thinking, waiting on the API or running a tool (with elapsed time and hang warnings), a file tree where the current file shimmers, and a recent activity log. | Type `/activity` in Claude |
 | **[braindump](braindump)** <sub>v0.1.0</sub> | Talk it out like you would to a friend; Claude asks a few questions and turns it into a clear prompt for you to review. | Type `/braindump` in Claude |
-| **[mod-switch](mod-switch)** <sub>v0.1.2</sub> | A side panel listing your mods, with an on/off switch for each. | Type `/mods` in Claude |
+| **[mod-switch](mod-switch)** <sub>v0.1.3</sub> | A side panel listing your mods, with an on/off switch for each. | Type `/mods` in Claude |
 
 You need Claude Code installed first. If you use the **Claude desktop app** and can see a **Code** tab, you already have it.
 
