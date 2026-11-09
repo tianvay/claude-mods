@@ -170,6 +170,37 @@ async function autoload($: EngineInterface): Promise<string[]> {
   return added
 }
 
+// ---------------------------------------------------------------------------
+// Auto-publish: where ~/.claude/mod-publish.json names a repository folder
+// ({ "repo": "<folder>" }) holding sync.ps1, run it after auto-load so the
+// shared repository follows ~/.claude/mods. Absent file: nothing happens, so
+// people who install this mod are never affected.
+// ---------------------------------------------------------------------------
+
+async function autopublish($: EngineInterface): Promise<string | undefined> {
+  const modsDir = dirOf(norm($.plugin.root))
+  if (baseOf(modsDir) !== 'mods') return undefined
+  const configPath = `${dirOf(modsDir)}/mod-publish.json`
+  if (!(await $.fs.exists(configPath).catch(() => false))) return undefined
+  const config = JSON.parse(await $.fs.read(configPath)) as { repo?: unknown; enabled?: unknown }
+  if (config.enabled === false || typeof config.repo !== 'string') return undefined
+  const script = `${norm(config.repo)}/sync.ps1`
+  if (!(await $.fs.exists(script))) return `Mod publishing: no sync.ps1 in ${config.repo}`
+
+  const { exitCode, stdout, stderr } = await $.process.run(
+    ['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script],
+    { cwd: norm(config.repo), timeoutMs: 5 * 60_000 },
+  )
+  const result = `${stdout}\n${stderr}`
+    .split(/\r?\n/)
+    .reverse()
+    .find(l => l.startsWith('RESULT: '))
+    ?.slice('RESULT: '.length)
+  if (exitCode !== 0) return `Mod publishing ${result ?? `failed (exit ${exitCode})`}`
+  if (!result || result.startsWith('up to date') || result.startsWith('skipped')) return undefined
+  return `Mods ${result}`
+}
+
 async function isOff($: EngineInterface, name: string): Promise<boolean> {
   const plugin = pluginOf(name)
   return plugin !== undefined && (await read($, off)).includes(plugin)

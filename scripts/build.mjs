@@ -65,25 +65,30 @@ writeFileSync(join(root, '.claude-plugin', 'marketplace.json'), JSON.stringify(m
 const install = m => `claude plugin install ${m.name} --marketplace ${REPO}`
 const esc = s => String(s ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ')
 const table = [
-  '| Mod | Version | Commands | What it does |',
-  '| --- | --- | --- | --- |',
+  '| Mod | What it does | How to use it |',
+  '| --- | --- | --- |',
   ...mods.map(
     m =>
-      `| [${m.name}](${m.folder}) | ${esc(m.version ?? '')} | ${m.commands.map(c => `\`/${c}\``).join(' ') || '–'} | ${esc(m.description)} |`,
+      `| **[${m.name}](${m.folder})** <sub>v${esc(m.version ?? '?')}</sub> | ${esc(m.description)} | ${
+        m.commands.length ? `Type ${m.commands.map(c => `\`/${c}\``).join(' or ')} in Claude` : 'Works on its own'
+      } |`,
   ),
 ].join('\n')
-const each = mods
-  .map(
-    m =>
-      `**${m.name}** — in a Claude Code session type \`/plugin install ${m.name} --marketplace ${REPO}\`, or from a terminal:\n\n\`\`\`bash\n${install(m)}\n\`\`\``,
-  )
-  .join('\n\n')
+const updateAll = [
+  `claude plugin marketplace update ${MARKETPLACE}`,
+  ...mods.map(m => `claude plugin update ${m.name}@${MARKETPLACE}`),
+].join('; ')
+const uninstallAll = [
+  ...mods.map(m => `claude plugin uninstall ${m.name}@${MARKETPLACE}`),
+  `claude plugin marketplace remove ${MARKETPLACE}`,
+].join('; ')
 
 const template = readFileSync(join(root, 'scripts', 'README.template.md'), 'utf8')
 const readme = template
   .replaceAll('{{INSTALL_ALL}}', mods.map(install).join('; '))
   .replaceAll('{{TABLE}}', table)
-  .replaceAll('{{INSTALL_EACH}}', each)
+  .replaceAll('{{UPDATE_ALL}}', updateAll)
+  .replaceAll('{{UNINSTALL_ALL}}', uninstallAll)
   .replaceAll('{{REPO}}', REPO)
 writeFileSync(join(root, 'README.md'), readme)
 
