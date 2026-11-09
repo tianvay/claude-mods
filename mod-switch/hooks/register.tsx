@@ -116,6 +116,40 @@ async function copyTree($: EngineInterface, from: string, to: string): Promise<v
   }
 }
 
+type Manifest = Record<string, unknown> & { version?: string }
+
+async function readManifest($: EngineInterface, dir: string): Promise<Manifest | undefined> {
+  try {
+    return JSON.parse(await $.fs.read(`${dir}/.claude-plugin/plugin.json`)) as Manifest
+  } catch {
+    return undefined
+  }
+}
+
+const versionParts = (v: unknown) => (/^(\d+)\.(\d+)\.(\d+)/.exec(String(v ?? '')) ?? []).slice(1).map(Number)
+function isNewer(a: unknown, b: unknown): boolean {
+  const x = versionParts(a)
+  const y = versionParts(b)
+  if (x.length < 3) return false
+  if (y.length < 3) return true
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i]! > y[i]!
+  return false
+}
+
+// A dev copy's manifest is usually older than the published one: sync bumps
+// the version and the published copy carries the author and the short
+// description the README shows. Copying the dev manifest over it would roll
+// those back, so the published version (when newer), author and description stay.
+async function keepPublished($: EngineInterface, dest: string, published: Manifest): Promise<void> {
+  const copied = await readManifest($, dest)
+  if (!copied) return
+  const merged: Manifest = { ...copied }
+  if (isNewer(published.version, copied.version)) merged.version = published.version
+  for (const key of ['author', 'description', 'license', 'homepage', 'repository'])
+    if (published[key] !== undefined) merged[key] = published[key]
+  await $.fs.write(`${dest}/.claude-plugin/plugin.json`, JSON.stringify(merged, null, 2) + '\n')
+}
+
 async function autoload($: EngineInterface): Promise<string[]> {
   const modsDir = dirOf(norm($.plugin.root))
   if (baseOf(modsDir) !== 'mods') return [] // only from the permanent copy
@@ -140,7 +174,10 @@ async function autoload($: EngineInterface): Promise<string[]> {
           imported[mod.name] = Math.max(imported[mod.name] ?? 0, stamp)
           continue
         }
-        await copyTree($, src, `${modsDir}/${mod.name}`)
+        const dest = `${modsDir}/${mod.name}`
+        const published = await readManifest($, dest)
+        await copyTree($, src, dest)
+        if (published) await keepPublished($, dest, published)
         imported[mod.name] = stamp
         if (!added.includes(mod.name)) added.push(mod.name)
       }

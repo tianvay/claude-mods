@@ -1,6 +1,1 @@
-{
-  "name": "activity-panel",
-  "version": "0.1.1",
-  "description": "Side panel showing what Claude is doing right now: thinking, waiting on the API or running a tool (with elapsed time and hang warnings), a file tree where the current file shimmers, and a recent activity log.",
-  "types": "./types/index.d.ts"
-}
+{ "name": "activity-panel", "version": "0.1.2", "author": { "name": "tianvay" }, "description": "A side panel showing what Claude is doing right now (thinking, waiting on the model, or stuck on a command) and which files it opened, edited and committed.", "types": "./types/index.d.ts" }
