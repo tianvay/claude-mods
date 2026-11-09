@@ -1,17 +1,21 @@
 {
   "name": "claude-mods",
-  "owner": { "name": "tianvay" },
-  "description": "Mods for Claude Code: a Mods panel with on/off switches, and /braindump.",
+  "owner": {
+    "name": "tianvay"
+  },
+  "description": "Mods for Claude Code: braindump, mod-switch.",
   "plugins": [
-    {
-      "name": "mod-switch",
-      "source": "./mod-switch",
-      "description": "A side panel listing your mods, with an on/off switch for each."
-    },
     {
       "name": "braindump",
       "source": "./braindump",
-      "description": "Talk it out like you would to a friend; Claude asks a few questions and turns it into a clear prompt for you to review."
+      "description": "Talk it out like you would to a friend; Claude asks a few questions and turns it into a clear prompt for you to review.",
+      "version": "0.1.0"
+    },
+    {
+      "name": "mod-switch",
+      "source": "./mod-switch",
+      "description": "A side panel listing your mods, with an on/off switch for each.",
+      "version": "0.1.0"
     }
   ]
 }

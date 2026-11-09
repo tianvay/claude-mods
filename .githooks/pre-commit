@@ -1,0 +1,6 @@
+#!/bin/sh
+# Keeps README.md and marketplace.json in step with the mods on every commit,
+# and refuses a commit when a file looks like it holds a key.
+root="$(git rev-parse --show-toplevel)"
+node "$root/scripts/build.mjs" --check || exit 1
+git -C "$root" add README.md .claude-plugin/marketplace.json
