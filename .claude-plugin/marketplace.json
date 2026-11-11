@@ -21,7 +21,7 @@
       "name": "folder-check",
       "source": "./folder-check",
       "description": "Warns before the first prompt when the session runs without a project folder, and lets you pick one or carry on without.",
-      "version": "0.1.0"
+      "version": "0.1.1"
     },
     {
       "name": "mod-switch",

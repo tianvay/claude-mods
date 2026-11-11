@@ -1,1 +1,1 @@
-{ "name": "folder-check", "version": "0.1.0", "author": { "name": "tianvay" }, "description": "Warns before the first prompt when the session runs without a project folder, and lets you pick one or carry on without.", "types": "./types/index.d.ts" }
+{ "name": "folder-check", "version": "0.1.1", "author": { "name": "tianvay" }, "description": "Warns before the first prompt when the session runs without a project folder, and lets you pick one or carry on without.", "types": "./types/index.d.ts" }

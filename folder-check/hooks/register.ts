@@ -113,8 +113,19 @@ export const register: Register = on => {
     isAsking = true
     try {
       const { message, context } = await ask($)
-      // Outside a prompt there is no turn to carry the note: send it as one.
-      if (context !== undefined) void $.prompt.submit({ text: context })
+      // Outside a prompt there is no turn to carry the note: send it as one,
+      // from a timer, since a submit left pending by this hook ends with it.
+      if (context !== undefined) {
+        $.clock.after(400, async () => {
+          try {
+            const sent = await $.prompt.submit({ text: context })
+            if (sent.drop !== undefined) throw new Error(sent.drop)
+          } catch (error) {
+            $.ui.log(`folder-check: could not hand over to Claude: ${String(error)}`, { to: 'debug' })
+            $.ui.toast('Das hat nicht geklappt. Schreib Claude einfach: "Ordner wählen".')
+          }
+        })
+      }
       return { text: message }
     } finally {
       isAsking = false

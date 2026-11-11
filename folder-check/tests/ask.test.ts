@@ -59,6 +59,31 @@ test('picking opens the picker and moves the session there', async ($, on) => {
   expect(sent.context?.[0]).toContain('C:\\code\\picked')
 })
 
+test('/folder hands over to Claude when the mod may not open the picker', async ($, on) => {
+  const clock = mock.clock(on)
+  const prompts: string[] = []
+
+  mock.env(on, { USERPROFILE: HOME })
+  on('command.register', () => ({ value: { command: 'folder' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('ui.toast', () => ({ value: undefined }))
+  on('prompt.submit', (_, e) => (prompts.push(e.text), { text: e.text }))
+  on('tool.call', (_, e) => {
+    if (e.tool !== 'AskUserQuestion') return { deny: 'not allowed' }
+    const { questions } = e as unknown as Asked
+    return { result: { questions, answers: { [questions[0]!.question]: 'Ordner auswählen' } } }
+  })
+
+  await $.session.start({ cwd: HOME, surface: 'desktop', isInteractive: true })
+  const ran = await $.command.run({ command: 'folder' })
+  expect(prompts.length).toBe(0)
+
+  await clock.advance(500)
+  expect(ran.text).toContain('Ordnerdialog')
+  expect(prompts.length).toBe(1)
+  expect(prompts[0]).toContain('request_directory')
+})
+
 test('a typed path moves the session without the picker', async ($, on) => {
   const w = world(on, HOME, ['C:\\mcctl\\mcportal'])
   await $.prompt.submit({ text: 'hi' })
