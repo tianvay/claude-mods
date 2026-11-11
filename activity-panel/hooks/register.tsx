@@ -803,10 +803,16 @@ export const register: Register = on => {
         {touchedAll.length > 0 && (
           <Box flexDirection="column" gap={Svg ? 1 : 0}>
             {section('CLAUDE TOUCHED', `${touchedAll.length} file${touchedAll.length === 1 ? '' : 's'}`)}
-            {touchedAll
-              .slice(0, 12)
-              .map(([p]) => fileRow(p, baseOf(p), 0, isInside(p) ? parentOf(p) : 'outside project'))}
-            {touchedAll.length > 12 && <Text dimColor size="footnote">…and {touchedAll.length - 12} more</Text>}
+            {touchedAll.map(([p]) => (
+              <Box flexDirection="column">
+                {fileRow(p, baseOf(p), 0)}
+                <Box paddingLeft={Svg ? 6 : 5}>
+                  <Text dimColor size="footnote" wrap="wrap">
+                    {isInside(p) ? `${root}/${parentOf(p)}`.replace(/\/$/, '') : `${parentOf(p)} (outside project)`}
+                  </Text>
+                </Box>
+              </Box>
+            ))}
           </Box>
         )}
 
