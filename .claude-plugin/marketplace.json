@@ -3,7 +3,7 @@
   "owner": {
     "name": "tianvay"
   },
-  "description": "Mods for Claude Code: activity-panel, braindump, folder-check, mod-switch.",
+  "description": "Mods for Claude Code: activity-panel, braindump, folder-check, hut-parade, mod-switch.",
   "plugins": [
     {
       "name": "activity-panel",
@@ -22,6 +22,12 @@
       "source": "./folder-check",
       "description": "Warns before the first prompt when the session runs without a project folder, and lets you pick one or carry on without.",
       "version": "0.1.2"
+    },
+    {
+      "name": "hut-parade",
+      "source": "./hut-parade",
+      "description": "Seitenleiste mit allen Agents/Sub-Agents: das Maskottchen trägt je Aufgabe einen anderen Hut (Recherche, Design, Coding …)",
+      "version": "0.1.0"
     },
     {
       "name": "mod-switch",
