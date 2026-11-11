@@ -7,7 +7,7 @@ Small add-ons for [Claude Code](https://claude.com/claude-code) that make it nic
 | **[activity-panel](activity-panel)** <sub>v0.1.5</sub> | A side panel showing what Claude is doing right now (thinking, waiting on the model, or stuck on a command) and which files it opened, edited and committed. | Type `/activity` in Claude |
 | **[braindump](braindump)** <sub>v0.1.3</sub> | Talk it out like you would to a friend; Claude asks a few questions and turns it into a clear prompt for you to review. | Type `/braindump` in Claude |
 | **[folder-check](folder-check)** <sub>v0.1.2</sub> | Warns before the first prompt when the session runs without a project folder, and lets you pick one or carry on without. | Type `/folder` in Claude |
-| **[hut-parade](hut-parade)** <sub>v0.1.0</sub> | Seitenleiste mit allen Agents/Sub-Agents: das Maskottchen trägt je Aufgabe einen anderen Hut (Recherche, Design, Coding …) | Type `/hats` in Claude |
+| **[hut-parade](hut-parade)** <sub>v0.1.1</sub> | Seitenleiste mit allen Agents/Sub-Agents: das Maskottchen trägt je Aufgabe einen anderen Hut (Recherche, Design, Coding …) | Type `/hats` in Claude |
 | **[mod-switch](mod-switch)** <sub>v0.1.6</sub> | A side panel listing your mods, with an on/off switch for each. | Type `/mods` in Claude |
 
 You need Claude Code installed first. If you use the **Claude desktop app** and can see a **Code** tab, you already have it.

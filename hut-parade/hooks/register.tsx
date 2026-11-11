@@ -87,10 +87,13 @@ export function describeStep(tool: string, input: Record<string, unknown>): stri
   }
 }
 
-const clock = (ms: number) => {
-  const s = Math.max(0, Math.floor(ms / 1000))
-  const m = Math.floor(s / 60)
-  return `${m}:${String(s % 60).padStart(2, '0')}`
+export const clock = (ms: number) => {
+  const total = Math.max(0, Math.floor(ms / 1000))
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`
 }
 
 // ---------------------------------------------------------------- mascot
@@ -239,7 +242,7 @@ export const register: Register = on => {
 
     // A foreground Agent call that returns has finished its agent, whatever
     // turn.complete said (or did not, where the loop was cut short).
-    if (e.tool === 'Agent' && !e.run_in_background) {
+    if (e.tool === 'Agent') {
       const now = await $.clock.now()
       const failed = 'isError' in ran && Boolean((ran as { isError?: boolean }).isError)
       await patch(
@@ -279,9 +282,9 @@ export const register: Register = on => {
   // ---------------------------------------------------------------- drawing
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const ui = $.ui.resolve(e) as unknown as Record<string, any>
+    const ui = $.ui.resolve(e)
     const { Box, Text, Button } = ui
-    const Svg = ui.Svg as undefined | ((p: object) => unknown)
+    const Svg = 'Svg' in ui ? ui.Svg : undefined
     const list = await read($, agents)
     await read($, tick)
     const now = await $.clock.now()

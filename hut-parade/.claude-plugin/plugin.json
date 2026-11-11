@@ -1,6 +1,6 @@
 {
   "name": "hut-parade",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Seitenleiste mit allen Agents/Sub-Agents: das Maskottchen trägt je Aufgabe einen anderen Hut (Recherche, Design, Coding …)",
   "types": "./types/index.d.ts"
 }
