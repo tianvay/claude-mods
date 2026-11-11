@@ -6,6 +6,7 @@ Small add-ons for [Claude Code](https://claude.com/claude-code) that make it nic
 | --- | --- | --- |
 | **[activity-panel](activity-panel)** <sub>v0.1.4</sub> | A side panel showing what Claude is doing right now (thinking, waiting on the model, or stuck on a command) and which files it opened, edited and committed. | Type `/activity` in Claude |
 | **[braindump](braindump)** <sub>v0.1.3</sub> | Talk it out like you would to a friend; Claude asks a few questions and turns it into a clear prompt for you to review. | Type `/braindump` in Claude |
+| **[folder-check](folder-check)** <sub>v0.1.0</sub> | Warns before the first prompt when the session runs without a project folder, and lets you pick one or carry on without. | Type `/folder` in Claude |
 | **[mod-switch](mod-switch)** <sub>v0.1.6</sub> | A side panel listing your mods, with an on/off switch for each. | Type `/mods` in Claude |
 
 You need Claude Code installed first. If you use the **Claude desktop app** and can see a **Code** tab, you already have it.
@@ -33,7 +34,7 @@ You need Claude Code installed first. If you use the **Claude desktop app** and 
 2. Copy this line, paste it into the window, and press Enter:
 
    ```bash
-   claude plugin install activity-panel --marketplace tianvay/claude-mods; claude plugin install braindump --marketplace tianvay/claude-mods; claude plugin install mod-switch --marketplace tianvay/claude-mods
+   claude plugin install activity-panel --marketplace tianvay/claude-mods; claude plugin install braindump --marketplace tianvay/claude-mods; claude plugin install folder-check --marketplace tianvay/claude-mods; claude plugin install mod-switch --marketplace tianvay/claude-mods
    ```
 
 3. If it asks a question, type `y` and press Enter.
@@ -44,7 +45,7 @@ You need Claude Code installed first. If you use the **Claude desktop app** and 
 I update these mods from time to time. To get the latest, do Option B again with this line instead:
 
 ```bash
-claude plugin marketplace update claude-mods; claude plugin update activity-panel@claude-mods; claude plugin update braindump@claude-mods; claude plugin update mod-switch@claude-mods
+claude plugin marketplace update claude-mods; claude plugin update activity-panel@claude-mods; claude plugin update braindump@claude-mods; claude plugin update folder-check@claude-mods; claude plugin update mod-switch@claude-mods
 ```
 
 Then start a new Claude session.
@@ -52,7 +53,7 @@ Then start a new Claude session.
 ## Remove the mods
 
 ```bash
-claude plugin uninstall activity-panel@claude-mods; claude plugin uninstall braindump@claude-mods; claude plugin uninstall mod-switch@claude-mods; claude plugin marketplace remove claude-mods
+claude plugin uninstall activity-panel@claude-mods; claude plugin uninstall braindump@claude-mods; claude plugin uninstall folder-check@claude-mods; claude plugin uninstall mod-switch@claude-mods; claude plugin marketplace remove claude-mods
 ```
 
 ## Something not working?
