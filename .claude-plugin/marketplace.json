@@ -26,8 +26,8 @@
     {
       "name": "hut-parade",
       "source": "./hut-parade",
-      "description": "Seitenleiste mit allen Agents/Sub-Agents: das Maskottchen trägt je Aufgabe einen anderen Hut (Recherche, Design, Coding …)",
-      "version": "0.1.2"
+      "description": "Seitenleiste mit allen Agents/Sub-Agents: das Maskottchen trägt je Aufgabe einen anderen Hut (Recherche, Design, Coding, Übersetzung …) und ein passendes Accessoire",
+      "version": "0.1.3"
     },
     {
       "name": "mod-switch",
