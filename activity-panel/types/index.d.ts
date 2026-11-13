@@ -55,6 +55,7 @@ declare module 'claude-code' {
       query: string
       /** The person closed the panel this session: don't bring it back unasked. */
       hidden: boolean
+      showAllTouched: boolean
     }
   }
 }

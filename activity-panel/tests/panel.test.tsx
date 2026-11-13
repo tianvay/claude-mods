@@ -164,3 +164,30 @@ test('a turn that ends with a background task running shows WAITING, not DONE', 
   expect((await ui.find({ type: 'Text', text: /^DONE$/ }))?.text).toBe('DONE')
   await ui.unmount()
 })
+
+test('the file tree comes before a short touched list that can show all', async ($, on) => {
+  mock.clock(on, { now: 1_762_700_000_000 })
+  on('command.register', () => ({ value: { command: 'activity' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('fs.exists', () => ({ value: true }))
+  on('fs.list', () => ({ value: [entry('README.md', 'file')] }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('tool.call', () => ({ result: {} }))
+
+  await $.session.start({ cwd: 'C:\proj', surface: 'desktop', isInteractive: true })
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  for (let i = 1; i <= 7; i++) await $.tool.call({ tool: 'Read', file_path: `C:/other/tests/f${i}.py` })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const texts = (await ui.findAll({ type: 'Text' })).map(el => String((el as { text?: string }).text))
+  expect(texts.indexOf('ALL FILES')).toBeGreaterThan(-1)
+  expect(texts.indexOf('ALL FILES')).toBeLessThan(texts.indexOf('CLAUDE TOUCHED'))
+  expect(texts.filter(t => t === 'tests (outside project)')).toHaveLength(5)
+  expect(texts).toContain(' reading ') // the file being read is in the short list
+
+  await ui.press({ key: 'touched-toggle' })
+  const after = (await ui.findAll({ type: 'Text' })).map(el => String((el as { text?: string }).text))
+  expect(after.filter(t => t === 'tests (outside project)')).toHaveLength(7)
+  await ui.unmount()
+})

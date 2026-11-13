@@ -10,6 +10,7 @@ const PANE = 'activity-panel'
 const TITLE = 'Activity'
 const TICK_MS = 500
 const MAX_TREE_ROWS = 400
+const TOUCHED_PREVIEW = 5
 const SLOW_MODEL_MS = 45_000
 const SLOW_TOOL_MS = 30_000
 const DEFAULT_SHELL_TIMEOUT_MS = 120_000
@@ -30,6 +31,7 @@ const expanded = atom({ plugin: 'activity-panel', key: 'expanded' } as const, { 
 const now = atom({ plugin: 'activity-panel', key: 'now' } as const, 0)
 const query = atom({ plugin: 'activity-panel', key: 'query' } as const, '')
 const hidden = atom({ plugin: 'activity-panel', key: 'hidden' } as const, false)
+const showAllTouched = atom({ plugin: 'activity-panel', key: 'showAllTouched' } as const, false)
 
 // Module variables start over on every reload; session.start sets them again.
 let root = ''
@@ -400,6 +402,7 @@ export const register: Register = on => {
     const ds = await read($, dirs)
     const ex = await read($, expanded)
     const q = (await read($, query)).trim().toLowerCase()
+    const allTouched = await read($, showAllTouched)
     const t = Math.max(await read($, now), a.phaseSince)
     const frame = Math.floor(t / TICK_MS)
     const cols = e.props.bodyColumns
@@ -624,7 +627,10 @@ export const register: Register = on => {
       )
     }
 
-    const touchedAll = Object.entries(f).sort((x, y) => y[1].lastAt - x[1].lastAt)
+    // Files being worked on now come first, then newest; reversed first so a later file wins a tie.
+    const touchedAll = Object.entries(f)
+      .reverse()
+      .sort((x, y) => Number(y[0] in active) - Number(x[0] in active) || y[1].lastAt - x[1].lastAt)
     const counts = { opened: 0, edited: 0, committed: 0 }
     for (const [, m] of touchedAll) {
       if (m.isCommitted) counts.committed++
@@ -799,23 +805,6 @@ export const register: Register = on => {
           {tile(a.turnStartedAt > 0 ? fmt((a.phase === 'idle' ? (a.turnEndedAt ?? t) : t) - a.turnStartedAt) : '–', a.phase === 'idle' ? 'last turn' : 'this turn', tone)}
         </Box>
 
-        {/* touched */}
-        {touchedAll.length > 0 && (
-          <Box flexDirection="column" gap={Svg ? 1 : 0}>
-            {section('CLAUDE TOUCHED', `${touchedAll.length} file${touchedAll.length === 1 ? '' : 's'}`)}
-            {touchedAll.map(([p]) => (
-              <Box flexDirection="column">
-                {fileRow(p, baseOf(p), 0)}
-                <Box paddingLeft={Svg ? 6 : 5}>
-                  <Text dimColor size="footnote" wrap="wrap">
-                    {isInside(p) ? `${root}/${parentOf(p)}`.replace(/\/$/, '') : `${parentOf(p)} (outside project)`}
-                  </Text>
-                </Box>
-              </Box>
-            ))}
-          </Box>
-        )}
-
         {/* all files */}
         <Box flexDirection="column" gap={Svg ? 1 : 0}>
           {section('ALL FILES', (baseOf(root) || root).toUpperCase())}
@@ -852,6 +841,23 @@ export const register: Register = on => {
             </Box>
           )}
         </Box>
+
+        {/* touched: the newest few, one line each, so the tree above stays in view */}
+        {touchedAll.length > 0 && (
+          <Box flexDirection="column" gap={Svg ? 1 : 0}>
+            {section('CLAUDE TOUCHED', `${touchedAll.length} file${touchedAll.length === 1 ? '' : 's'}`)}
+            {(allTouched ? touchedAll : touchedAll.slice(0, TOUCHED_PREVIEW)).map(([p]) =>
+              fileRow(p, baseOf(p), 0, isInside(p) ? parentOf(p) : `${baseOf(parentOf(p))} (outside project)`),
+            )}
+            {touchedAll.length > TOUCHED_PREVIEW && (
+              <Box flexDirection="row">
+                <Button key="touched-toggle" onPress={() => update($, showAllTouched, v => !v)}>
+                  {allTouched ? 'Show fewer' : `Show all (${touchedAll.length})`}
+                </Button>
+              </Box>
+            )}
+          </Box>
+        )}
 
         {/* timeline */}
         <Box flexDirection="column">
