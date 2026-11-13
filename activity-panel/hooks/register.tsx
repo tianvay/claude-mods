@@ -63,6 +63,13 @@ const abs = (r: string) => (r === '' ? root : `${root}/${r}`)
 const parentOf = (r: string) => (r.includes('/') ? r.slice(0, r.lastIndexOf('/')) : '')
 const baseOf = (r: string) => r.slice(r.lastIndexOf('/') + 1)
 
+/** Keeps the middle out of a long text so both ends stay readable. */
+function midShort(s: string, n: number): string {
+  if (s.length <= n) return s
+  const tail = Math.ceil((n - 1) * 0.6)
+  return s.slice(0, n - 1 - tail) + '…' + s.slice(s.length - tail)
+}
+
 function fmt(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000))
   if (s < 60) return `${s}s`
@@ -147,6 +154,25 @@ async function reveal($: $, r: string, isNew: boolean) {
   }
 }
 
+/**
+ * Follows the folder the session works in. The desktop app may start a session in a
+ * placeholder folder and move it to the real project later; files are only tracked
+ * inside the current folder, so a move starts the file view over.
+ */
+async function syncRoot($: $, cwd?: string) {
+  const next = norm(cwd ?? (await $.session.cwd()))
+  if (next === '' || next === root) return
+  const hadRoot = root !== ''
+  root = next
+  if (hadRoot) {
+    await update($, files, () => ({}))
+    await update($, dirs, () => ({}))
+    await update($, expanded, () => ({ '': true }))
+    await update($, activity, a => ({ ...a, current: undefined, turnTouched: [] }))
+  }
+  await safe(() => listDir($, ''))
+}
+
 function startTicker($: $) {
   if (ticker) return
   ticker = $.clock.every(TICK_MS, () => {
@@ -175,11 +201,14 @@ const COMMIT_OUT_RE = /\[([^\s\]]+)(?: \(root-commit\))? ([0-9a-f]{7,40})\]/
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const r = await next(e)
+    // A reload runs this again; the folder may have moved since the session began.
+    const known = (await read($, dirs))[''] !== undefined
     root = norm(e.cwd)
+    await safe(() => syncRoot($))
     await safe(() =>
       $.command.register({ name: 'activity', description: 'Open the activity panel' }),
     )
-    await safe(() => listDir($, ''))
+    if (!known) await safe(() => listDir($, ''))
     // If a reload landed mid-turn, keep the clock running for the drawing.
     await safe(async () => {
       if ((await read($, activity)).phase !== 'idle') startTicker($)
@@ -215,8 +244,15 @@ export const register: Register = on => {
     return { text: 'Activity panel opened.' }
   })
 
+  on('classic.CwdChanged', async ($, e, next) => {
+    const r = await next(e)
+    await safe(() => syncRoot($, e.new_cwd))
+    return r
+  }).catch(($, e, next) => next(e))
+
   on('turn.start', async ($, e, next) => {
     if (e.agentId !== undefined) return next(e)
+    await safe(() => syncRoot($))
     await safe(async () => {
       const t = await $.clock.now()
       await update($, now, () => t)
@@ -295,7 +331,9 @@ export const register: Register = on => {
   on('tool.call', async ($, e, next) => {
     const args = e as unknown as Record<string, unknown>
     const d = describe(e.tool, args)
-    const path = d.path ? rel(d.path) : undefined
+    // Only files inside the session's folder are tracked; scratch files and other folders are not.
+    const relPath = d.path ? rel(d.path) : undefined
+    const path = relPath !== undefined && relPath !== '' && isInside(relPath) ? relPath : undefined
     let startedAt = 0
     let isNew = false
 
@@ -383,6 +421,7 @@ export const register: Register = on => {
         }
       })
 
+      if (d.path !== undefined && path === undefined) return
       const who = e.agentId !== undefined ? '[agent] ' : ''
       const why = ran.deny !== undefined ? ' — denied' : ran.isError === true ? ' — error' : ''
       await log($, `${who}${e.tool} ${short(d.label, 70)} (${fmt(t - startedAt)})${why}${commitNote}`, failed ? 'err' : 'ok')
@@ -495,7 +534,7 @@ export const register: Register = on => {
         if (runHung) warn = 'No result for a long time. The command may be hung.'
       }
       kicker = `${kicker} · ${kind === 'hung' ? 'MAYBE STUCK' : kind.toUpperCase()}`
-      if (a.current) subtitle = `${a.current.verb} ${a.current.path}`
+      if (a.current) subtitle = a.current.path
     }
 
     const toneHex: Record<string, string> = {
@@ -610,8 +649,8 @@ export const register: Register = on => {
             {Svg ? art(fileChip(label), ext === '' ? 'file' : ext) : <Text dimColor>{(ext || '·').slice(0, 4).padEnd(4)}</Text>}
             {name}
             {hint !== undefined && hint !== '' && (
-              <Text dimColor size="footnote">
-                {hint}
+              <Text dimColor size="caption">
+                {midShort(hint, Math.max(12, cols - 26 - label.length))}
               </Text>
             )}
           </Box>
@@ -638,9 +677,9 @@ export const register: Register = on => {
       else counts.opened++
     }
 
-    const tile = (value: string, label: string, color: string) => (
-      <Box flexDirection="column" flexGrow={1} borderStyle="round" borderColor={color} paddingX={1}>
-        <Text size="heading" weight="bold" color={color} tabular>
+    const tile = (value: string, label: string, color: string, isZero = false) => (
+      <Box flexDirection="column" flexGrow={1} borderStyle="round" borderColor="subtle" paddingX={1}>
+        <Text size="heading" weight="bold" color={isZero ? undefined : color} dimColor={isZero} tabular>
           {value}
         </Text>
         <Text size="caption" dimColor>
@@ -649,16 +688,19 @@ export const register: Register = on => {
       </Box>
     )
 
-    const section = (label: string, right?: string) => (
-      <Box flexDirection="row" justifyContent="space-between" marginTop={1}>
-        <Text size="caption" weight="bold" dimColor>
-          {label}
-        </Text>
-        {right !== undefined && (
-          <Text size="caption" dimColor tabular>
-            {right}
+    const section = (label: string, right?: string, actions?: RenderNode) => (
+      <Box flexDirection="row" justifyContent="space-between" alignItems="center" marginTop={1}>
+        <Box flexDirection="row" gap={1} alignItems="center">
+          <Text size="caption" weight="bold" dimColor>
+            {label}
           </Text>
-        )}
+          {right !== undefined && right !== '' && (
+            <Text size="caption" dimColor tabular>
+              · {right}
+            </Text>
+          )}
+        </Box>
+        {actions}
       </Box>
     )
 
@@ -703,7 +745,7 @@ export const register: Register = on => {
             <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={1}>
               <Box flexDirection="row" alignItems="center" gap={1} paddingLeft={depth * 2}>
                 {Svg && art(folderIcon(isOpen, folderColor), isOpen ? 'open folder' : 'folder')}
-                <Button key={'dir:' + path} onPress={() => toggle(path)}>
+                <Button key={'dir:' + path} plain onPress={() => toggle(path)}>
                   {Svg ? '' : isOpen ? '▾ ' : '▸ '}
                   {entry.name}
                 </Button>
@@ -759,11 +801,19 @@ export const register: Register = on => {
               </Text>
             </Box>
           </Box>
-          {subtitle !== '' && (
-            <Box marginTop={1}>
-              <Text mono size="footnote" color={tone}>
-                {short(subtitle, Math.max(20, cols - 4))}
+          {subtitle !== '' && a.current && (
+            <Box flexDirection="row" alignItems="center" gap={1} marginTop={1}>
+              <Text size="footnote" color={tone}>
+                {a.current.verb}
               </Text>
+              <Text size="footnote" mono weight="semibold">
+                {short(baseOf(subtitle), Math.max(12, cols - 24))}
+              </Text>
+              {parentOf(subtitle) !== '' && (
+                <Text size="footnote" dimColor>
+                  in {midShort(parentOf(subtitle), Math.max(10, cols - 30 - baseOf(subtitle).length))}
+                </Text>
+              )}
             </Box>
           )}
           {warn !== '' && (
@@ -799,41 +849,51 @@ export const register: Register = on => {
 
         {/* stat tiles */}
         <Box flexDirection="row" gap={1}>
-          {tile(String(counts.opened), 'opened', 'merged')}
-          {tile(String(counts.edited), 'edited', 'warning')}
-          {tile(String(counts.committed), 'committed', 'success')}
-          {tile(a.turnStartedAt > 0 ? fmt((a.phase === 'idle' ? (a.turnEndedAt ?? t) : t) - a.turnStartedAt) : '–', a.phase === 'idle' ? 'last turn' : 'this turn', tone)}
+          {tile(String(counts.opened), 'opened', 'merged', counts.opened === 0)}
+          {tile(String(counts.edited), 'edited', 'warning', counts.edited === 0)}
+          {tile(String(counts.committed), 'committed', 'success', counts.committed === 0)}
+          {tile(
+            a.turnStartedAt > 0 ? fmt((a.phase === 'idle' ? (a.turnEndedAt ?? t) : t) - a.turnStartedAt) : '–',
+            a.phase === 'idle' ? 'last turn' : 'this turn',
+            tone,
+            a.turnStartedAt === 0,
+          )}
         </Box>
 
         {/* all files */}
         <Box flexDirection="column" gap={Svg ? 1 : 0}>
-          {section('FILES', (baseOf(root) || root).toUpperCase())}
-          {Input && (
-            <Input key="find" placeholder="Find a file" onInput={v => update($, query, () => v)} onSubmit={v => update($, query, () => v)} />
-          )}
-          <Box flexDirection="row" gap={1}>
-            <Button key="refresh" onPress={refresh}>
-              Refresh
-            </Button>
-            <Button key="collapse" onPress={collapse}>
-              Collapse all
-            </Button>
-            {q !== '' && (
-              <Button key="clear" onPress={() => update($, query, () => '')}>
-                Clear search
+          {section(
+            'FILES',
+            midShort(baseOf(root) || root, 28),
+            <Box flexDirection="row" gap={1}>
+              <Button key="refresh" dimColor onPress={refresh}>
+                Refresh
               </Button>
-            )}
-          </Box>
+              <Button key="collapse" dimColor onPress={collapse}>
+                Collapse
+              </Button>
+            </Box>,
+          )}
+          {Input && (
+            <Input key="find" placeholder="Find a touched file" onInput={v => update($, query, () => v)} onSubmit={v => update($, query, () => v)} />
+          )}
           {q !== '' ? (
             <Box flexDirection="column" gap={Svg ? 1 : 0}>
-              {matches.length === 0 && <Text dimColor>No file matches “{q}”.</Text>}
+              <Box flexDirection="row" justifyContent="space-between" alignItems="center">
+                <Text dimColor size="caption">
+                  {matches.length === 0 ? `No touched file matches “${q}”.` : `${matches.length} match${matches.length === 1 ? '' : 'es'}`}
+                </Text>
+                <Button key="clear" dimColor onPress={() => update($, query, () => '')}>
+                  Clear
+                </Button>
+              </Box>
               {matches.map(p => fileRow(p, baseOf(p), 0, parentOf(p)))}
             </Box>
           ) : (
             <Box flexDirection="column" gap={Svg ? 1 : 0}>
               {ds[''] === undefined && <Text dimColor>Listing the project…</Text>}
               {ds[''] !== undefined && treeRows.length === 0 && (
-                <Text dimColor>Claude hasn't touched any files in this project yet.</Text>
+                <Text dimColor>No files touched in {baseOf(root) || root} yet.</Text>
               )}
               {treeRows}
               {treeRows.length >= MAX_TREE_ROWS && (
@@ -848,14 +908,12 @@ export const register: Register = on => {
         {/* touched: the newest few, one line each, so the tree above stays in view */}
         {touchedAll.length > 0 && (
           <Box flexDirection="column" gap={Svg ? 1 : 0}>
-            {section('CLAUDE TOUCHED', `${touchedAll.length} file${touchedAll.length === 1 ? '' : 's'}`)}
-            {(allTouched ? touchedAll : touchedAll.slice(0, TOUCHED_PREVIEW)).map(([p]) =>
-              fileRow(p, baseOf(p), 0, isInside(p) ? parentOf(p) : `${baseOf(parentOf(p))} (outside project)`),
-            )}
+            {section('RECENTLY TOUCHED', `${touchedAll.length} file${touchedAll.length === 1 ? '' : 's'}`)}
+            {(allTouched ? touchedAll : touchedAll.slice(0, TOUCHED_PREVIEW)).map(([p]) => fileRow(p, baseOf(p), 0, parentOf(p)))}
             {touchedAll.length > TOUCHED_PREVIEW && (
               <Box flexDirection="row">
-                <Button key="touched-toggle" onPress={() => update($, showAllTouched, v => !v)}>
-                  {allTouched ? 'Show fewer' : `Show all (${touchedAll.length})`}
+                <Button key="touched-toggle" dimColor onPress={() => update($, showAllTouched, v => !v)}>
+                  {allTouched ? 'Show fewer' : `Show all ${touchedAll.length}`}
                 </Button>
               </Box>
             )}
@@ -866,19 +924,27 @@ export const register: Register = on => {
         <Box flexDirection="column">
           {section('RECENT ACTIVITY')}
           {logRows.length === 0 && <Text dimColor>Nothing yet.</Text>}
-          {logRows.map(l => (
-            <Box flexDirection="row" gap={1}>
-              <Text color={l.kind === 'err' ? 'error' : l.kind === 'ok' ? 'success' : 'inactive'}>
-                {l.kind === 'err' ? '✗' : l.kind === 'ok' ? '●' : '○'}
-              </Text>
-              <Text size="footnote" dimColor tabular>
-                {clockTime(l.at)}
-              </Text>
-              <Text size="footnote" color={l.kind === 'err' ? 'error' : undefined} dimColor={l.kind === 'info'}>
-                {short(l.text, Math.max(20, cols - 14))}
-              </Text>
-            </Box>
-          ))}
+          {logRows.map(l => {
+            const sp = l.text.indexOf(' ')
+            const head = sp > 0 ? l.text.slice(0, sp) : l.text
+            const rest = sp > 0 ? l.text.slice(sp + 1) : ''
+            return (
+              <Box flexDirection="row" gap={1}>
+                <Text color={l.kind === 'err' ? 'error' : l.kind === 'ok' ? 'success' : 'inactive'}>
+                  {l.kind === 'err' ? '✗' : l.kind === 'ok' ? '●' : '○'}
+                </Text>
+                <Text size="footnote" dimColor tabular>
+                  {clockTime(l.at).slice(0, 5)}
+                </Text>
+                <Text size="footnote" weight="semibold" color={l.kind === 'err' ? 'error' : undefined} dimColor={l.kind === 'info'}>
+                  {head}
+                </Text>
+                <Text size="footnote" dimColor>
+                  {short(rest, Math.max(12, cols - 16 - head.length))}
+                </Text>
+              </Box>
+            )
+          })}
         </Box>
       </Box>
     )

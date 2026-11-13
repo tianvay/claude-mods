@@ -4,7 +4,7 @@ Small add-ons for [Claude Code](https://claude.com/claude-code) that make it nic
 
 | Mod | What it does | How to use it |
 | --- | --- | --- |
-| **[activity-panel](activity-panel)** <sub>v0.1.7</sub> | A side panel showing what Claude is doing right now (thinking, waiting on the model, or stuck on a command) and which files it opened, edited and committed. | Type `/activity` in Claude |
+| **[activity-panel](activity-panel)** <sub>v0.1.8</sub> | A side panel showing what Claude is doing right now (thinking, waiting on the model, or stuck on a command) and which files it opened, edited and committed. | Type `/activity` in Claude |
 | **[braindump](braindump)** <sub>v0.1.3</sub> | Talk it out like you would to a friend; Claude asks a few questions and turns it into a clear prompt for you to review. | Type `/braindump` in Claude |
 | **[folder-check](folder-check)** <sub>v0.1.2</sub> | Warns before the first prompt when the session runs without a project folder, and lets you pick one or carry on without. | Type `/folder` in Claude |
 | **[hut-parade](hut-parade)** <sub>v0.1.2</sub> | Seitenleiste mit allen Agents/Sub-Agents: das Maskottchen trägt je Aufgabe einen anderen Hut (Recherche, Design, Coding …) | Type `/hats` in Claude |

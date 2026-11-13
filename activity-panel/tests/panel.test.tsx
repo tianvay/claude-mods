@@ -178,20 +178,57 @@ test('the file tree comes before a short touched list that can show all', async 
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('tool.call', () => ({ result: {} }))
 
-  await $.session.start({ cwd: 'C:\proj', surface: 'desktop', isInteractive: true })
+  await $.session.start({ cwd: 'C:/proj', surface: 'desktop', isInteractive: true })
   await $.turn.start({ text: 'go', turnId: 't1' })
-  for (let i = 1; i <= 7; i++) await $.tool.call({ tool: 'Read', file_path: `C:/other/tests/f${i}.py` })
+  for (let i = 1; i <= 7; i++) await $.tool.call({ tool: 'Read', file_path: `C:/proj/tests/f${i}.py` })
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const texts = (await ui.findAll({ type: 'Text' })).map(el => String((el as { text?: string }).text))
   expect(texts.indexOf('FILES')).toBeGreaterThan(-1)
-  expect(texts.indexOf('FILES')).toBeLessThan(texts.indexOf('CLAUDE TOUCHED'))
+  expect(texts.indexOf('FILES')).toBeLessThan(texts.indexOf('RECENTLY TOUCHED'))
   expect(texts).not.toContain('README.md') // untouched project file stays out of the tree
-  expect(texts.filter(t => t === 'tests (outside project)')).toHaveLength(5)
+  expect(texts.filter(t => t === 'tests')).toHaveLength(5)
   expect(texts).toContain(' reading ') // the file being read is in the short list
 
   await ui.press({ key: 'touched-toggle' })
   const after = (await ui.findAll({ type: 'Text' })).map(el => String((el as { text?: string }).text))
-  expect(after.filter(t => t === 'tests (outside project)')).toHaveLength(7)
+  expect(after.filter(t => t === 'tests')).toHaveLength(7)
+  await ui.unmount()
+})
+
+test('the panel follows the session into its real folder and ignores files elsewhere', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_762_700_000_000 })
+  let cwd = 'C:/Temp/spare-2s7nz7'
+  on('command.register', () => ({ value: { command: 'activity' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: cwd }))
+  on('fs.exists', () => ({ value: true }))
+  on('fs.list', (_, e) => {
+    const p = String((e as { path?: string }).path ?? '').replace(/\\/g, '/')
+    if (p === 'C:/draftgott') return { value: [entry('components', 'dir'), entry('README.md', 'file')] }
+    if (p === 'C:/draftgott/components') return { value: [entry('synergy.py', 'file'), entry('other.py', 'file')] }
+    return { value: [entry('placeholder.txt', 'file')] }
+  })
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('tool.call', (_, e) => (e.tool === 'Edit' ? new Promise(() => {}) : { result: {} }))
+
+  await $.session.start({ cwd, surface: 'desktop', isInteractive: true })
+  // The desktop app moves the session to the folder the person picked.
+  cwd = 'C:/draftgott'
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.tool.call({ tool: 'Read', file_path: 'C:/Users/me/.claude/projects/x/tool-results/bn81.txt' })
+  await $.tool.call({ tool: 'Read', file_path: 'C:/Users/me/AppData/Local/Temp/claude/s/scratchpad/survey.py' })
+  void $.tool.call({ tool: 'Edit', file_path: 'C:\\draftgott\\components\\synergy.py', old_string: 'a', new_string: 'b' })
+  await clock.settle()
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const texts = (await ui.findAll({ type: 'Text' })).map(el => String((el as { text?: string }).text))
+  expect(texts.some(t => /No files touched/.test(t))).toBe(false)
+  expect(texts).toContain('· draftgott') // the files section names the real folder
+  expect(texts).toContain('synergy.py')
+  expect(texts).toContain('in components') // the hero says where the edited file is
+  expect(texts).not.toContain('other.py')
+  expect(texts.some(t => /bn81|survey\.py|tool-results|scratchpad/.test(t))).toBe(false)
   await ui.unmount()
 })
