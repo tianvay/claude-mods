@@ -694,8 +694,10 @@ export const register: Register = on => {
         if (treeRows.length >= MAX_TREE_ROWS) return
         const path = dir === '' ? entry.name : `${dir}/${entry.name}`
         if (entry.isDir) {
-          const isOpen = ex[path] === true
           const u = touchedUnder(path)
+          // Only folders that hold something Claude touched.
+          if (u.changed + u.opened === 0 && !u.isActive) continue
+          const isOpen = ex[path] === true
           const folderColor = u.isActive ? HEX.orange : u.changed > 0 ? (u.allCommitted ? HEX.green : HEX.amber) : u.opened > 0 ? HEX.purple : '#6CA8F0'
           treeRows.push(
             <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={1}>
@@ -718,19 +720,17 @@ export const register: Register = on => {
             </Box>,
           )
           if (isOpen) walk(path, depth + 1)
-        } else {
+        } else if (f[path] !== undefined || path in active) {
+          // Only files Claude touched.
           treeRows.push(fileRow(path, entry.name, depth))
         }
       }
     }
 
-    // A search replaces the tree with the matching files Claude knows of.
+    // A search replaces the tree with the matching files Claude touched.
     let matches: string[] = []
     if (q !== '') {
-      const known = new Set<string>(touchedAll.map(([k]) => k))
-      for (const [dir, list] of Object.entries(ds))
-        for (const entry of list) if (!entry.isDir) known.add(dir === '' ? entry.name : `${dir}/${entry.name}`)
-      matches = [...known].filter(p => p.toLowerCase().includes(q)).sort().slice(0, 60)
+      matches = touchedAll.map(([k]) => k).filter(p => p.toLowerCase().includes(q)).sort().slice(0, 60)
     } else walk('', 0)
 
     const refresh = async () => {
@@ -807,7 +807,7 @@ export const register: Register = on => {
 
         {/* all files */}
         <Box flexDirection="column" gap={Svg ? 1 : 0}>
-          {section('ALL FILES', (baseOf(root) || root).toUpperCase())}
+          {section('FILES', (baseOf(root) || root).toUpperCase())}
           {Input && (
             <Input key="find" placeholder="Find a file" onInput={v => update($, query, () => v)} onSubmit={v => update($, query, () => v)} />
           )}
@@ -832,6 +832,9 @@ export const register: Register = on => {
           ) : (
             <Box flexDirection="column" gap={Svg ? 1 : 0}>
               {ds[''] === undefined && <Text dimColor>Listing the project…</Text>}
+              {ds[''] !== undefined && treeRows.length === 0 && (
+                <Text dimColor>Claude hasn't touched any files in this project yet.</Text>
+              )}
               {treeRows}
               {treeRows.length >= MAX_TREE_ROWS && (
                 <Text dimColor size="footnote">

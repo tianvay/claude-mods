@@ -4,7 +4,7 @@ Small add-ons for [Claude Code](https://claude.com/claude-code) that make it nic
 
 | Mod | What it does | How to use it |
 | --- | --- | --- |
-| **[activity-panel](activity-panel)** <sub>v0.1.6</sub> | A side panel showing what Claude is doing right now (thinking, waiting on the model, or stuck on a command) and which files it opened, edited and committed. | Type `/activity` in Claude |
+| **[activity-panel](activity-panel)** <sub>v0.1.7</sub> | A side panel showing what Claude is doing right now (thinking, waiting on the model, or stuck on a command) and which files it opened, edited and committed. | Type `/activity` in Claude |
 | **[braindump](braindump)** <sub>v0.1.3</sub> | Talk it out like you would to a friend; Claude asks a few questions and turns it into a clear prompt for you to review. | Type `/braindump` in Claude |
 | **[folder-check](folder-check)** <sub>v0.1.2</sub> | Warns before the first prompt when the session runs without a project folder, and lets you pick one or carry on without. | Type `/folder` in Claude |
 | **[hut-parade](hut-parade)** <sub>v0.1.2</sub> | Seitenleiste mit allen Agents/Sub-Agents: das Maskottchen trägt je Aufgabe einen anderen Hut (Recherche, Design, Coding …) | Type `/hats` in Claude |
@@ -65,7 +65,7 @@ claude plugin uninstall activity-panel@claude-mods; claude plugin uninstall brai
 
 ## Notes
 
-- **activity-panel** opens on its own at the start of a session (or type `/activity`). The top card has an animated icon that tells you whether Claude is thinking, waiting on the model, or running a command, with a timer; each running command gets a bar that fills toward its timeout and turns red with "may be hung" when it gets close. In the file tree (with a "Find a file" search box in the desktop app), the file Claude is working on shimmers, files it opened turn purple, edited ones yellow, and committed ones green. When Claude finishes, the card becomes a short summary of what it did. Files count as committed once a `git commit` succeeds.
+- **activity-panel** opens on its own at the start of a session (or type `/activity`). The top card has an animated icon that tells you whether Claude is thinking, waiting on the model, or running a command, with a timer; each running command gets a bar that fills toward its timeout and turns red with "may be hung" when it gets close. The file tree lists only the files Claude touched (with a "Find a file" search box in the desktop app): the file Claude is working on shimmers, files it opened turn purple, edited ones yellow, and committed ones green. When Claude finishes, the card becomes a short summary of what it did. Files count as committed once a `git commit` succeeds.
 - **mod-switch** pauses a mod's commands for the current session only. Some mods work quietly in the background and can't be paused.
 
 ---

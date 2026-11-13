@@ -57,6 +57,9 @@ test('a turn that reads, edits and commits ends in a summary', async ($, on) => 
   await desk.unmount()
 
   const term = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  // The tree lists touched files only: stations.js was never opened.
+  expect(await term.find({ type: 'Text', text: /^stations\.js$/ })).toBeFalsy()
+  expect(await term.find({ type: 'Text', text: /^README\.md$/ })).toBeTruthy()
   expect((await term.find({ type: 'Text', text: /^ editing $/ }))?.text).toBe(' editing ')
   expect((await term.find({ type: 'Text', text: /^opened$/ }))?.text).toBe('opened')
   await term.unmount()
@@ -181,8 +184,9 @@ test('the file tree comes before a short touched list that can show all', async 
 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   const texts = (await ui.findAll({ type: 'Text' })).map(el => String((el as { text?: string }).text))
-  expect(texts.indexOf('ALL FILES')).toBeGreaterThan(-1)
-  expect(texts.indexOf('ALL FILES')).toBeLessThan(texts.indexOf('CLAUDE TOUCHED'))
+  expect(texts.indexOf('FILES')).toBeGreaterThan(-1)
+  expect(texts.indexOf('FILES')).toBeLessThan(texts.indexOf('CLAUDE TOUCHED'))
+  expect(texts).not.toContain('README.md') // untouched project file stays out of the tree
   expect(texts.filter(t => t === 'tests (outside project)')).toHaveLength(5)
   expect(texts).toContain(' reading ') // the file being read is in the short list
 
